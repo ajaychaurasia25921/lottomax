@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { createServer } from 'node:http';
+import QRCode from 'qrcode';
 
 const PORT = Number(process.env.PORT ?? 5180);
 const DATA_DIR = process.env.LOTTOMAX_DATA_DIR ?? './data';
@@ -9,6 +10,8 @@ const DB_FILE = join(DATA_DIR, 'lottomax.json');
 const PUBLIC_DIR = resolve('./dist');
 const PLATFORM_FEE_RATE = 0.15;
 const PAYMENT_PROVIDER = process.env.LOTTOMAX_PAYMENT_PROVIDER ?? 'manual-provider';
+const COMPANY_UPI_ID = process.env.LOTTOMAX_COMPANY_UPI_ID ?? 'lottomax@upi';
+const COMPANY_PAYEE_NAME = process.env.LOTTOMAX_COMPANY_PAYEE_NAME ?? 'LottoMax';
 
 const GROUP_PRESETS = [
   { id: 'group-5', title: '5 Player Rush', size: 5, entryFee: 250 },
@@ -90,6 +93,14 @@ function json(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function svg(response, status, payload) {
+  response.writeHead(status, {
+    'Content-Type': 'image/svg+xml; charset=utf-8',
+    'Cache-Control': 'no-store'
+  });
+  response.end(payload);
+}
+
 function publicUser(user) {
   if (!user) return null;
   return {
@@ -110,8 +121,29 @@ function statePayload(db, user = null) {
     users: db.users.map(publicUser),
     groups: db.groups,
     companyWallet: db.companyWallet,
-    payments: user ? db.payments.filter((payment) => payment.userId === user.id).slice(-10).reverse() : [],
+    payments: user ? db.payments.filter((payment) => payment.userId === user.id).slice(-10).reverse().map(paymentOrderView) : [],
     transactions: user ? db.ledger.filter((entry) => entry.userId === user.id).slice(-20).reverse() : []
+  };
+}
+
+function paymentUpiPayload(order) {
+  const params = new URLSearchParams({
+    pa: COMPANY_UPI_ID,
+    pn: COMPANY_PAYEE_NAME,
+    am: Number(order.amount).toFixed(2),
+    cu: order.currency,
+    tn: `LottoMax wallet top-up ${order.id}`,
+    tr: order.id
+  });
+  return `upi://pay?${params.toString()}`;
+}
+
+function paymentOrderView(order) {
+  if (!order) return null;
+  return {
+    ...order,
+    upiPayload: order.upiPayload ?? paymentUpiPayload(order),
+    qrCodeUrl: `/api/payments/orders/${order.id}/qr`
   };
 }
 
@@ -223,6 +255,22 @@ async function handleApi(request, response, pathname) {
     return json(response, 200, statePayload(db, user));
   }
 
+  const qrMatch = pathname.match(/^\/api\/payments\/orders\/([^/]+)\/qr$/);
+  if (method === 'GET' && qrMatch) {
+    const order = db.payments.find((payment) => payment.id === qrMatch[1]);
+    if (!order) throw Object.assign(new Error('Payment order not found'), { status: 404 });
+    const qr = await QRCode.toString(order.upiPayload ?? paymentUpiPayload(order), {
+      type: 'svg',
+      margin: 1,
+      width: 240,
+      color: {
+        dark: '#050816',
+        light: '#ffffff'
+      }
+    });
+    return svg(response, 200, qr);
+  }
+
   const body = await parseBody(request);
 
   if (method === 'POST' && pathname === '/api/auth/register') {
@@ -272,12 +320,15 @@ async function handleApi(request, response, pathname) {
       method: body.method ?? 'UPI',
       status: 'PENDING_PROVIDER_CONFIRMATION',
       provider: PAYMENT_PROVIDER,
+      upiPayee: COMPANY_UPI_ID,
+      upiPayload: '',
       providerReference: '',
       createdAt: now()
     };
+    paymentOrder.upiPayload = paymentUpiPayload(paymentOrder);
     db.payments.push(paymentOrder);
     writeDb(db);
-    return json(response, 201, { paymentOrder, ...statePayload(db, user) });
+    return json(response, 201, { paymentOrder: paymentOrderView(paymentOrder), ...statePayload(db, user) });
   }
 
   if (method === 'POST' && pathname === '/api/payments/confirm') {

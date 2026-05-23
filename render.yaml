@@ -14,3 +14,7 @@ services:
         value: /app/data
       - key: LOTTOMAX_PAYMENT_PROVIDER
         sync: false
+      - key: LOTTOMAX_COMPANY_UPI_ID
+        sync: false
+      - key: LOTTOMAX_COMPANY_PAYEE_NAME
+        sync: false

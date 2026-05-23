@@ -6,6 +6,8 @@ services:
       PORT: 5180
       LOTTOMAX_DATA_DIR: /app/data
       LOTTOMAX_PAYMENT_PROVIDER: ${LOTTOMAX_PAYMENT_PROVIDER:-manual-provider}
+      LOTTOMAX_COMPANY_UPI_ID: ${LOTTOMAX_COMPANY_UPI_ID:-lottomax@upi}
+      LOTTOMAX_COMPANY_PAYEE_NAME: ${LOTTOMAX_COMPANY_PAYEE_NAME:-LottoMax}
     ports:
       - "5180:5180"
     volumes:

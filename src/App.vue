@@ -158,6 +158,14 @@ onMounted(() => {
           </form>
           <form v-if="store.pendingPayment" class="form-grid confirm" @submit.prevent="store.confirmPayment">
             <small>Order {{ store.pendingPayment.id }} · {{ store.currency(store.pendingPayment.amount) }}</small>
+            <div class="qr-payment">
+              <img :src="store.pendingPayment.qrCodeUrl" alt="UPI payment QR code" />
+              <div>
+                <strong>Scan and pay</strong>
+                <span>{{ store.pendingPayment.upiPayee }}</span>
+                <a :href="store.pendingPayment.upiPayload">Open UPI app</a>
+              </div>
+            </div>
             <input v-model="store.paymentForm.providerReference" placeholder="Gateway payment reference" />
             <button class="button secondary" :disabled="store.loading">Verify and credit wallet</button>
           </form>

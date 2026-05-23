@@ -6,6 +6,7 @@ Production-shaped LottoMax instant group draw platform inspired by the Manus ref
 - Node HTTP backend with persistent wallet ledger storage
 - User registration and sign-in
 - Payment order portal with provider reference confirmation
+- Direct UPI payment deep links and scannable QR codes for pending payment orders
 - Wallet-based real-money group entry
 - 5/10/15/20-player live groups
 - Entry fee, prize pool, and draw escrow calculation
@@ -19,7 +20,8 @@ Production-shaped LottoMax instant group draw platform inspired by the Manus ref
 Actual money capture should be connected to a licensed payment provider such as Razorpay,
 Stripe, Cashfree, or a bank gateway through `LOTTOMAX_PAYMENT_PROVIDER` and a secure webhook.
 The included portal creates backend payment orders and requires a provider reference before
-crediting the wallet, so balance changes are no longer browser-only demo state.
+crediting the wallet, so balance changes are no longer browser-only demo state. Configure
+`LOTTOMAX_COMPANY_UPI_ID` and `LOTTOMAX_COMPANY_PAYEE_NAME` to generate the production QR.
 
 ## Development
 
