@@ -2,6 +2,15 @@ services:
   lottomax:
     build:
       context: .
+    environment:
+      PORT: 5180
+      LOTTOMAX_DATA_DIR: /app/data
+      LOTTOMAX_PAYMENT_PROVIDER: ${LOTTOMAX_PAYMENT_PROVIDER:-manual-provider}
     ports:
-      - "5180:80"
+      - "5180:5180"
+    volumes:
+      - lottomax-data:/app/data
     restart: unless-stopped
+
+volumes:
+  lottomax-data:

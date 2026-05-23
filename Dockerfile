@@ -5,7 +5,11 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
-EXPOSE 80
+FROM node:22-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY server.js ./server.js
+COPY --from=build /app/dist ./dist
+RUN mkdir -p /app/data
+EXPOSE 5180
+CMD ["node", "server.js"]

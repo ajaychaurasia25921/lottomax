@@ -1,68 +1,75 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
-const GROUP_PRESETS = [
-  { size: 5, entryFee: 250 },
-  { size: 10, entryFee: 500 },
-  { size: 15, entryFee: 1000 },
-  { size: 20, entryFee: 2500 }
-];
-
-const NAMES = ['Aarav', 'Isha', 'Kabir', 'Meera', 'Vihaan', 'Anaya', 'Rohan', 'Tara', 'Dev', 'Naina', 'Arjun', 'Kiara'];
+const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 function currency(amount) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
     maximumFractionDigits: 0
-  }).format(amount);
+  }).format(Number(amount || 0));
 }
 
-function randomFrom(list) {
-  return list[Math.floor(Math.random() * list.length)];
-}
-
-function createPlayers(count, maxSize) {
-  return Array.from({ length: count }, (_, index) => ({
-    id: `bot-${Date.now()}-${index}`,
-    name: randomFrom(NAMES),
-    number: index < maxSize ? index + 1 : null,
-    isYou: false
-  }));
-}
-
-function makeGroup(index, preset) {
-  const playerCount = Math.max(1, Math.min(preset.size - 1, Math.floor(Math.random() * preset.size)));
-  return {
-    id: `group-${preset.size}-${index}`,
-    title: `${preset.size} Player Rush`,
-    size: preset.size,
-    entryFee: preset.entryFee,
-    prizePool: preset.entryFee * preset.size,
-    status: 'OPEN',
-    players: createPlayers(playerCount, preset.size),
-    selectedNumber: null,
-    pickEndsAt: null,
-    graceEndsAt: null,
-    winnerNumber: null,
-    winnerName: '',
-    drawLog: ['Group opened. Waiting for players.']
-  };
+async function request(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers ?? {})
+    },
+    ...options
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error ?? 'Request failed');
+  }
+  return payload;
 }
 
 export const useLottoStore = defineStore('lotto', () => {
-  const wallet = ref(12500);
-  const groups = ref(GROUP_PRESETS.map((preset, index) => makeGroup(index + 1, preset)));
-  const activeGroupId = ref(groups.value[0].id);
-  const transactions = ref([
-    { id: 'txn-welcome', type: 'CREDIT', amount: 12500, note: 'Welcome wallet balance', at: new Date().toISOString() }
-  ]);
+  const token = ref(localStorage.getItem('lottomax.token') ?? '');
+  const user = ref(null);
+  const users = ref([]);
+  const groups = ref([]);
+  const companyWallet = ref({ balance: 0 });
+  const transactions = ref([]);
+  const payments = ref([]);
+  const activeGroupId = ref('');
+  const loading = ref(false);
+  const error = ref('');
+  const notice = ref('');
 
-  const activeGroup = computed(() => groups.value.find((group) => group.id === activeGroupId.value) ?? groups.value[0]);
+  const authForm = ref({
+    name: 'Ajay',
+    email: 'ajay@example.com',
+    phone: '+91 90000 00000',
+    password: 'ChangeMe123!',
+    ageConfirmed: true
+  });
+
+  const loginForm = ref({
+    email: 'ajay@example.com',
+    password: 'ChangeMe123!'
+  });
+
+  const paymentForm = ref({
+    amount: 1000,
+    method: 'UPI',
+    providerReference: ''
+  });
+
+  const pendingPayment = ref(null);
+
+  const activeGroup = computed(() => (
+    groups.value.find((group) => group.id === activeGroupId.value) ?? groups.value[0]
+  ));
+
+  const wallet = computed(() => user.value?.wallet?.balance ?? 0);
   const openGroups = computed(() => groups.value.filter((group) => group.status !== 'COMPLETED'));
   const totalPrizePool = computed(() => groups.value.reduce((sum, group) => sum + group.prizePool, 0));
-  const groupSizes = computed(() => GROUP_PRESETS.map((preset) => preset.size).join('-'));
-  const you = computed(() => activeGroup.value?.players.find((player) => player.isYou));
+  const groupSizes = computed(() => groups.value.map((group) => group.size).join('-'));
+  const you = computed(() => activeGroup.value?.players.find((player) => player.userId === user.value?.id));
+
   const availableNumbers = computed(() => {
     const group = activeGroup.value;
     if (!group) return [];
@@ -74,130 +81,166 @@ export const useLottoStore = defineStore('lotto', () => {
     }));
   });
 
-  function addTransaction(type, amount, note) {
-    transactions.value = [{
-      id: `txn-${Date.now()}`,
-      type,
-      amount,
-      note,
-      at: new Date().toISOString()
-    }, ...transactions.value].slice(0, 20);
+  function setMessage(nextNotice = '', nextError = '') {
+    notice.value = nextNotice;
+    error.value = nextError;
+  }
+
+  function commitState(payload) {
+    user.value = payload.user ?? user.value;
+    users.value = payload.users ?? users.value;
+    groups.value = payload.groups ?? groups.value;
+    companyWallet.value = payload.companyWallet ?? companyWallet.value;
+    transactions.value = payload.transactions ?? transactions.value;
+    payments.value = payload.payments ?? payments.value;
+    if (!activeGroupId.value && groups.value.length) activeGroupId.value = groups.value[0].id;
+  }
+
+  async function run(action, successMessage) {
+    loading.value = true;
+    setMessage();
+    try {
+      const payload = await action();
+      commitState(payload);
+      if (successMessage) setMessage(successMessage);
+      return payload;
+    } catch (err) {
+      setMessage('', err.message);
+      throw err;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function loadState() {
+    if (!token.value) {
+      const payload = await request('/api/public-state');
+      commitState(payload);
+      return payload;
+    }
+    return run(() => request(`/api/state?token=${encodeURIComponent(token.value)}`));
+  }
+
+  async function register() {
+    return run(async () => {
+      const payload = await request('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(authForm.value)
+      });
+      token.value = payload.token;
+      localStorage.setItem('lottomax.token', token.value);
+      return payload;
+    }, 'Account created. Wallet is active after payment top-up.');
+  }
+
+  async function login() {
+    return run(async () => {
+      const payload = await request('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(loginForm.value)
+      });
+      token.value = payload.token;
+      localStorage.setItem('lottomax.token', token.value);
+      return payload;
+    }, 'Signed in.');
+  }
+
+  function logout() {
+    token.value = '';
+    user.value = null;
+    transactions.value = [];
+    payments.value = [];
+    localStorage.removeItem('lottomax.token');
+    loadState();
   }
 
   function selectGroup(id) {
     activeGroupId.value = id;
   }
 
-  function joinGroup(id) {
-    const group = groups.value.find((item) => item.id === id);
-    if (!group || group.players.some((player) => player.isYou) || group.status !== 'OPEN') return;
-    if (wallet.value < group.entryFee) {
-      group.drawLog = ['Insufficient wallet balance.', ...group.drawLog];
-      return;
-    }
-    wallet.value -= group.entryFee;
-    addTransaction('DEBIT', group.entryFee, `Joined ${group.title}`);
-    group.players = [...group.players, { id: 'you', name: 'You', number: null, isYou: true }];
-    group.drawLog = [`You joined. ${group.size - group.players.length} seats left.`, ...group.drawLog];
-    activeGroupId.value = group.id;
-    if (group.players.length >= group.size) startPicking(group);
-  }
-
-  function autoFillGroup(id) {
-    const group = groups.value.find((item) => item.id === id);
-    if (!group || group.status !== 'OPEN') return;
-    while (group.players.length < group.size) {
-      group.players.push({
-        id: `bot-${Date.now()}-${group.players.length}`,
-        name: randomFrom(NAMES),
-        number: null,
-        isYou: false
+  async function createPaymentOrder() {
+    return run(async () => {
+      const payload = await request('/api/payments/orders', {
+        method: 'POST',
+        body: JSON.stringify({ token: token.value, amount: Number(paymentForm.value.amount), method: paymentForm.value.method })
       });
-    }
-    startPicking(group);
+      pendingPayment.value = payload.paymentOrder;
+      return payload;
+    }, 'Payment order created. Complete it in your payment provider portal.');
   }
 
-  function startPicking(group) {
-    group.status = 'PICKING';
-    group.pickEndsAt = Date.now() + 120_000;
-    group.graceEndsAt = null;
-    group.drawLog = ['Group is full. Pick your unique number card within 2 minutes.', ...group.drawLog];
-    assignBotNumbers(group);
+  async function confirmPayment() {
+    if (!pendingPayment.value) return;
+    return run(async () => {
+      const payload = await request('/api/payments/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          token: token.value,
+          orderId: pendingPayment.value.id,
+          providerReference: paymentForm.value.providerReference
+        })
+      });
+      pendingPayment.value = null;
+      paymentForm.value.providerReference = '';
+      return payload;
+    }, 'Payment verified and wallet credited.');
   }
 
-  function assignBotNumbers(group) {
-    const numbers = Array.from({ length: group.size }, (_, index) => index + 1);
-    group.players = group.players.map((player) => {
-      if (player.isYou || player.number) return player;
-      const index = Math.floor(Math.random() * numbers.length);
-      return { ...player, number: numbers.splice(index, 1)[0] };
-    });
+  async function joinGroup(id) {
+    return run(() => request(`/api/groups/${id}/join`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token.value })
+    }), 'Entry fee debited into draw escrow.');
   }
 
-  function pickNumber(number) {
-    const group = activeGroup.value;
-    if (!group || !you.value || !['PICKING', 'GRACE'].includes(group.status)) return;
-    const ownedByOther = group.players.some((player) => !player.isYou && player.number === number);
-    if (ownedByOther) return;
-    group.players = group.players.map((player) => player.isYou ? { ...player, number } : player);
-    group.selectedNumber = number;
-    group.drawLog = [`You selected number ${number}.`, ...group.drawLog];
+  async function pickNumber(number) {
+    if (!activeGroup.value) return;
+    return run(() => request(`/api/groups/${activeGroup.value.id}/pick`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token.value, number })
+    }), `Number ${number} locked.`);
   }
 
-  function advanceClock() {
-    const now = Date.now();
-    groups.value.forEach((group) => {
-      if (group.status === 'PICKING' && group.pickEndsAt && now >= group.pickEndsAt) {
-        group.status = 'GRACE';
-        group.graceEndsAt = Date.now() + 30_000;
-        group.drawLog = ['30-second grace period started. You can still change your number.', ...group.drawLog];
-      }
-      if (group.status === 'GRACE' && group.graceEndsAt && now >= group.graceEndsAt) {
-        drawWinner(group.id);
-      }
-    });
-  }
-
-  function drawWinner(id) {
-    const group = groups.value.find((item) => item.id === id);
-    if (!group || !['PICKING', 'GRACE'].includes(group.status)) return;
-    const chosen = group.players.filter((player) => player.number);
-    const winner = randomFrom(chosen);
-    group.status = 'COMPLETED';
-    group.winnerNumber = winner.number;
-    group.winnerName = winner.name;
-    group.drawLog = [`Number ${winner.number} drawn. Winner: ${winner.name}.`, ...group.drawLog];
-    if (winner.isYou) {
-      wallet.value += group.prizePool;
-      addTransaction('CREDIT', group.prizePool, `Won ${group.title}`);
-    }
-  }
-
-  function resetCompleted() {
-    groups.value = groups.value.map((group, index) => (
-      group.status === 'COMPLETED' ? makeGroup(index + 1, { size: group.size, entryFee: group.entryFee }) : group
-    ));
-    activeGroupId.value = groups.value[0].id;
+  async function drawWinner(id) {
+    return run(() => request(`/api/groups/${id}/draw`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token.value })
+    }), 'Draw settled by backend ledger.');
   }
 
   return {
-    wallet,
+    token,
+    user,
+    users,
     groups,
+    companyWallet,
+    transactions,
+    payments,
     activeGroupId,
     activeGroup,
     openGroups,
     totalPrizePool,
     groupSizes,
-    transactions,
+    wallet,
     you,
     availableNumbers,
+    authForm,
+    loginForm,
+    paymentForm,
+    pendingPayment,
+    loading,
+    error,
+    notice,
     currency,
+    loadState,
+    register,
+    login,
+    logout,
     selectGroup,
+    createPaymentOrder,
+    confirmPayment,
     joinGroup,
-    autoFillGroup,
     pickNumber,
-    drawWinner,
-    advanceClock,
-    resetCompleted
+    drawWinner
   };
 });

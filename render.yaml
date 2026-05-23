@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: lottomax
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5180
+      - key: LOTTOMAX_DATA_DIR
+        value: /app/data
+      - key: LOTTOMAX_PAYMENT_PROVIDER
+        sync: false

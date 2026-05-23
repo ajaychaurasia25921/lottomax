@@ -18,7 +18,7 @@ body {
     #fff8ed;
 }
 
-button, input { font: inherit; }
+button, input, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: 0.45; }
 
@@ -85,6 +85,8 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 
 .hero,
 .stat-grid,
+.message-row,
+.account-grid,
 .play-layout,
 .how-section,
 .feature-grid,
@@ -112,6 +114,29 @@ footer {
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 24px 70px rgba(120, 53, 15, 0.11);
+}
+
+.message-row {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.message-row p {
+  margin: 0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-weight: 900;
+}
+
+.message-row .error {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.message-row .notice {
+  color: #065f46;
+  background: #d1fae5;
 }
 
 .hero-copy {
@@ -224,11 +249,16 @@ footer p {
 }
 
 .play-layout,
-.dashboard-grid {
+.dashboard-grid,
+.account-grid {
   display: grid;
   grid-template-columns: minmax(340px, 0.8fr) minmax(0, 1.2fr);
   gap: 18px;
   margin-top: 28px;
+}
+
+.account-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .panel {
@@ -257,9 +287,69 @@ footer p {
 .group-list,
 .log-list,
 .txn-list,
-.player-grid {
+.player-grid,
+.form-grid {
   display: grid;
   gap: 10px;
+}
+
+.form-grid input,
+.form-grid select {
+  width: 100%;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  padding: 12px 13px;
+  color: #111827;
+  background: #fffaf2;
+  outline: none;
+}
+
+.form-grid input:focus,
+.form-grid select:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.12);
+}
+
+.check-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.check-row input {
+  width: auto;
+  margin-top: 2px;
+}
+
+.identity-card,
+.payment-order,
+.company-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 14px;
+  padding: 14px;
+  background: #fffaf2;
+}
+
+.identity-card strong,
+.payment-order strong,
+.company-card strong {
+  color: #111827;
+}
+
+.identity-card span,
+.payment-order p,
+.company-card span,
+.empty {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.55;
 }
 
 .group-card,
@@ -321,6 +411,23 @@ footer p {
 .game-actions {
   flex-wrap: wrap;
   margin: 16px 0;
+}
+
+.payout-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.payout-strip span {
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  padding: 10px;
+  color: #92400e;
+  background: #fffbeb;
+  font-size: 12px;
+  font-weight: 1000;
 }
 
 .number-picker {
@@ -408,6 +515,31 @@ footer p {
   color: #059669;
 }
 
+.user-panel {
+  width: min(1180px, calc(100% - 32px));
+  margin: 28px auto 0;
+}
+
+.user-list {
+  display: grid;
+  gap: 10px;
+}
+
+.user-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fffaf2;
+}
+
+.user-list span {
+  color: #64748b;
+}
+
 footer {
   display: grid;
   justify-items: center;
@@ -441,9 +573,12 @@ footer p {
   .hero,
   .play-layout,
   .dashboard-grid,
+  .account-grid,
   .stat-grid,
   .feature-grid,
-  .steps {
+  .steps,
+  .payout-strip,
+  .user-list article {
     grid-template-columns: 1fr;
   }
 
