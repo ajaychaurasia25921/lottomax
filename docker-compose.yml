@@ -1,0 +1,7 @@
+services:
+  lottomax:
+    build:
+      context: .
+    ports:
+      - "5180:80"
+    restart: unless-stopped
