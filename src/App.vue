@@ -129,14 +129,23 @@ onMounted(() => {
         <article class="glass-panel">
           <span>User Management</span>
           <h3>{{ store.user ? store.user.name : 'Create player' }}</h3>
-          <form v-if="!store.user" class="form-grid" @submit.prevent="store.register">
-            <input v-model="store.authForm.name" placeholder="Full name" />
-            <input v-model="store.authForm.email" placeholder="Email" />
-            <input v-model="store.authForm.phone" placeholder="Phone" />
-            <input v-model="store.authForm.password" type="password" placeholder="Password" />
-            <label><input v-model="store.authForm.ageConfirmed" type="checkbox" /> I confirm this player is 18+</label>
-            <button class="button primary" :disabled="store.loading">Create account</button>
-          </form>
+          <div v-if="!store.user" class="split-forms">
+            <form class="form-grid" @submit.prevent="store.register">
+              <strong>Create player</strong>
+              <input v-model="store.authForm.name" placeholder="Full name" />
+              <input v-model="store.authForm.email" placeholder="Email" />
+              <input v-model="store.authForm.phone" placeholder="Phone" />
+              <input v-model="store.authForm.password" type="password" placeholder="Password" />
+              <label><input v-model="store.authForm.ageConfirmed" type="checkbox" /> I confirm this player is 18+</label>
+              <button class="button primary" :disabled="store.loading">Create account</button>
+            </form>
+            <form class="form-grid" @submit.prevent="store.login">
+              <strong>Owner / player sign in</strong>
+              <input v-model="store.loginForm.email" placeholder="Email" />
+              <input v-model="store.loginForm.password" type="password" placeholder="Password" />
+              <button class="button secondary" :disabled="store.loading">Sign in</button>
+            </form>
+          </div>
           <form v-else class="form-grid compact" @submit.prevent="store.logout">
             <p>{{ store.user.email }} · {{ store.user.kycStatus }} · {{ store.user.role }}</p>
             <button class="button secondary" type="submit">Sign out</button>
@@ -171,6 +180,93 @@ onMounted(() => {
           </form>
         </article>
       </div>
+
+      <section class="glass-panel player-management">
+        <div class="panel-head">
+          <div>
+            <span>Player Management</span>
+            <h3>Users, KYC, wallet controls</h3>
+          </div>
+          <input v-model="store.playerSearch" placeholder="Search player, email, phone, status..." />
+        </div>
+
+        <div class="player-admin-grid">
+          <div class="player-table">
+            <button
+              v-for="player in store.filteredUsers"
+              :key="player.id"
+              :class="{ active: store.selectedPlayer?.id === player.id }"
+              @click="store.selectPlayer(player.id)"
+            >
+              <span>
+                <strong>{{ player.name }}</strong>
+                <small>{{ player.email }} · {{ player.phone || 'no phone' }}</small>
+              </span>
+              <b>{{ store.currency(player.wallet.balance) }}</b>
+              <em>{{ player.accountStatus }}</em>
+              <em>{{ player.kycStatus }}</em>
+            </button>
+            <p v-if="!store.filteredUsers.length">No players found.</p>
+          </div>
+
+          <aside class="player-detail" v-if="store.selectedPlayer">
+            <span>Selected player</span>
+            <h4>{{ store.selectedPlayer.name }}</h4>
+            <dl>
+              <dt>Role</dt><dd>{{ store.selectedPlayer.role }}</dd>
+              <dt>Status</dt><dd>{{ store.selectedPlayer.accountStatus }}</dd>
+              <dt>KYC</dt><dd>{{ store.selectedPlayer.kycStatus }}</dd>
+              <dt>Risk</dt><dd>{{ store.selectedPlayer.riskLevel }}</dd>
+              <dt>Wallet</dt><dd>{{ store.currency(store.selectedPlayer.wallet.balance) }}</dd>
+            </dl>
+
+            <div v-if="store.isOwner" class="admin-actions">
+              <form @submit.prevent="store.updatePlayerStatus">
+                <label>Account status</label>
+                <select v-model="store.playerActionForm.accountStatus">
+                  <option>ACTIVE</option>
+                  <option>WATCHLIST</option>
+                  <option>SUSPENDED</option>
+                </select>
+                <button class="button secondary" :disabled="store.loading">Update status</button>
+              </form>
+              <form @submit.prevent="store.updatePlayerKyc">
+                <label>KYC status</label>
+                <select v-model="store.playerActionForm.kycStatus">
+                  <option>PENDING</option>
+                  <option>BASIC_VERIFIED</option>
+                  <option>FULL_VERIFIED</option>
+                  <option>REJECTED</option>
+                </select>
+                <button class="button secondary" :disabled="store.loading">Update KYC</button>
+              </form>
+              <form @submit.prevent="store.adjustPlayerWallet">
+                <label>Wallet adjustment</label>
+                <select v-model="store.playerActionForm.direction">
+                  <option>CREDIT</option>
+                  <option>DEBIT</option>
+                </select>
+                <input v-model.number="store.playerActionForm.amount" min="1" type="number" placeholder="Amount" />
+                <input v-model="store.playerActionForm.note" placeholder="Reason / note" />
+                <button class="button primary" :disabled="store.loading">Apply adjustment</button>
+              </form>
+              <form @submit.prevent="store.addPlayerNote">
+                <label>Admin note</label>
+                <input v-model="store.playerActionForm.note" placeholder="Add player note" />
+                <button class="button secondary" :disabled="store.loading">Add note</button>
+              </form>
+            </div>
+
+            <p v-else class="owner-lock">Sign in as the OWNER account to manage KYC, status, wallet adjustments, and notes.</p>
+
+            <div class="note-list">
+              <strong>Notes</strong>
+              <p v-for="note in store.selectedPlayer.notes" :key="note">{{ note }}</p>
+              <small v-if="!store.selectedPlayer.notes?.length">No notes recorded.</small>
+            </div>
+          </aside>
+        </div>
+      </section>
 
       <div class="game-layout" v-if="activeGroup">
         <section class="glass-panel groups-panel">

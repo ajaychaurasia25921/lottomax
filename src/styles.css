@@ -478,6 +478,16 @@ a {
   gap: 12px;
 }
 
+.split-forms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.split-forms strong {
+  color: #ffffff;
+}
+
 .form-grid.compact p {
   margin: 0;
 }
@@ -549,6 +559,168 @@ a {
   color: #ffffff;
   background: linear-gradient(135deg, #22c55e, #16a34a);
   font-weight: 800;
+}
+
+.player-management {
+  margin-top: 22px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.panel-head span,
+.player-detail > span {
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+.panel-head h3,
+.player-detail h4 {
+  margin: 8px 0 0;
+  color: #ffffff;
+}
+
+.panel-head input {
+  width: min(360px, 100%);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  padding: 12px 13px;
+  color: #ffffff;
+  background: rgba(15, 23, 42, 0.74);
+  outline: none;
+}
+
+.player-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 18px;
+}
+
+.player-table {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.player-table button {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) auto auto auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 12px;
+  padding: 13px;
+  color: #ffffff;
+  background: rgba(15, 23, 42, 0.48);
+  text-align: left;
+}
+
+.player-table button.active {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.player-table small,
+.player-table em,
+.player-detail dd,
+.owner-lock,
+.note-list p,
+.note-list small {
+  color: rgba(226, 232, 240, 0.68);
+}
+
+.player-table b {
+  color: #4ade80;
+}
+
+.player-table em {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.player-detail {
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.player-detail dl {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 14px 0;
+}
+
+.player-detail dt {
+  color: rgba(226, 232, 240, 0.48);
+}
+
+.player-detail dd {
+  margin: 0;
+  font-weight: 800;
+}
+
+.admin-actions {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-actions form {
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding-top: 12px;
+}
+
+.admin-actions label {
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-actions input,
+.admin-actions select {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #ffffff;
+  background: rgba(15, 23, 42, 0.74);
+}
+
+.owner-lock {
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.note-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.note-list strong {
+  color: #ffffff;
+}
+
+.note-list p {
+  margin: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding-top: 8px;
+  font-size: 13px;
 }
 
 .group-list {
@@ -672,7 +844,9 @@ a {
   .proof-strip,
   .console-grid,
   .game-layout,
-  .ledger-grid {
+  .ledger-grid,
+  .split-forms,
+  .player-admin-grid {
     grid-template-columns: 1fr;
   }
 
@@ -684,6 +858,14 @@ a {
   .mini-stats,
   .draw-stats,
   .qr-payment {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-head {
+    flex-direction: column;
+  }
+
+  .player-table button {
     grid-template-columns: 1fr;
   }
 }

@@ -110,6 +110,10 @@ function publicUser(user) {
     phone: user.phone,
     role: user.role,
     kycStatus: user.kycStatus,
+    accountStatus: user.accountStatus ?? 'ACTIVE',
+    riskLevel: user.riskLevel ?? 'LOW',
+    notes: user.notes ?? [],
+    lastLoginAt: user.lastLoginAt ?? null,
     wallet: user.wallet,
     createdAt: user.createdAt
   };
@@ -172,6 +176,14 @@ function requireUser(db, token) {
   const userId = db.sessions[token];
   const user = db.users.find((item) => item.id === userId);
   if (!user) throw Object.assign(new Error('Sign in required'), { status: 401 });
+  return user;
+}
+
+function requireOwner(db, token) {
+  const user = requireUser(db, token);
+  if (user.role !== 'OWNER') {
+    throw Object.assign(new Error('Owner permission required'), { status: 403 });
+  }
   return user;
 }
 
@@ -286,6 +298,9 @@ async function handleApi(request, response, pathname) {
       phone: body.phone ?? '',
       role: db.users.length === 0 ? 'OWNER' : 'PLAYER',
       kycStatus: 'BASIC_VERIFIED',
+      accountStatus: 'ACTIVE',
+      riskLevel: 'LOW',
+      notes: [],
       passwordHash: hashPassword(body.password),
       wallet: { id: id('wallet'), balance: 0, currency: 'INR' },
       createdAt: now()
@@ -302,10 +317,78 @@ async function handleApi(request, response, pathname) {
     if (!user || !verifyPassword(body.password ?? '', user.passwordHash)) {
       throw Object.assign(new Error('Invalid email or password'), { status: 401 });
     }
+    if ((user.accountStatus ?? 'ACTIVE') === 'SUSPENDED') {
+      throw Object.assign(new Error('Player account is suspended'), { status: 403 });
+    }
     const token = id('session');
     db.sessions[token] = user.id;
+    user.lastLoginAt = now();
     writeDb(db);
     return json(response, 200, { token, ...statePayload(db, user) });
+  }
+
+  const statusMatch = pathname.match(/^\/api\/users\/([^/]+)\/status$/);
+  if (method === 'POST' && statusMatch) {
+    const owner = requireOwner(db, body.token);
+    const target = db.users.find((item) => item.id === statusMatch[1]);
+    if (!target) throw Object.assign(new Error('Player not found'), { status: 404 });
+    const accountStatus = String(body.accountStatus ?? '').toUpperCase();
+    if (!['ACTIVE', 'WATCHLIST', 'SUSPENDED'].includes(accountStatus)) {
+      throw Object.assign(new Error('Invalid account status'), { status: 400 });
+    }
+    target.accountStatus = accountStatus;
+    target.riskLevel = accountStatus === 'SUSPENDED' ? 'HIGH' : accountStatus === 'WATCHLIST' ? 'MEDIUM' : 'LOW';
+    target.notes = [`${owner.name} set account status to ${accountStatus} at ${now()}`, ...(target.notes ?? [])].slice(0, 8);
+    writeDb(db);
+    return json(response, 200, statePayload(db, owner));
+  }
+
+  const kycMatch = pathname.match(/^\/api\/users\/([^/]+)\/kyc$/);
+  if (method === 'POST' && kycMatch) {
+    const owner = requireOwner(db, body.token);
+    const target = db.users.find((item) => item.id === kycMatch[1]);
+    if (!target) throw Object.assign(new Error('Player not found'), { status: 404 });
+    const kycStatus = String(body.kycStatus ?? '').toUpperCase();
+    if (!['PENDING', 'BASIC_VERIFIED', 'FULL_VERIFIED', 'REJECTED'].includes(kycStatus)) {
+      throw Object.assign(new Error('Invalid KYC status'), { status: 400 });
+    }
+    target.kycStatus = kycStatus;
+    target.notes = [`${owner.name} updated KYC to ${kycStatus} at ${now()}`, ...(target.notes ?? [])].slice(0, 8);
+    writeDb(db);
+    return json(response, 200, statePayload(db, owner));
+  }
+
+  const adjustMatch = pathname.match(/^\/api\/users\/([^/]+)\/wallet-adjustments$/);
+  if (method === 'POST' && adjustMatch) {
+    const owner = requireOwner(db, body.token);
+    const target = db.users.find((item) => item.id === adjustMatch[1]);
+    if (!target) throw Object.assign(new Error('Player not found'), { status: 404 });
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw Object.assign(new Error('Adjustment amount must be positive'), { status: 400 });
+    const direction = String(body.direction ?? 'CREDIT').toUpperCase();
+    const note = body.note?.trim() || `Owner wallet ${direction.toLowerCase()} adjustment`;
+    if (direction === 'CREDIT') {
+      creditWallet(db, target, amount, note, { ownerId: owner.id, manualAdjustment: true });
+    } else if (direction === 'DEBIT') {
+      debitWallet(db, target, amount, note, { ownerId: owner.id, manualAdjustment: true });
+    } else {
+      throw Object.assign(new Error('Invalid wallet adjustment direction'), { status: 400 });
+    }
+    target.notes = [`${owner.name} applied ${direction} ${amount} at ${now()}: ${note}`, ...(target.notes ?? [])].slice(0, 8);
+    writeDb(db);
+    return json(response, 200, statePayload(db, owner));
+  }
+
+  const notesMatch = pathname.match(/^\/api\/users\/([^/]+)\/notes$/);
+  if (method === 'POST' && notesMatch) {
+    const owner = requireOwner(db, body.token);
+    const target = db.users.find((item) => item.id === notesMatch[1]);
+    if (!target) throw Object.assign(new Error('Player not found'), { status: 404 });
+    const note = String(body.note ?? '').trim();
+    if (note.length < 3) throw Object.assign(new Error('Note is too short'), { status: 400 });
+    target.notes = [`${owner.name}: ${note}`, ...(target.notes ?? [])].slice(0, 8);
+    writeDb(db);
+    return json(response, 200, statePayload(db, owner));
   }
 
   if (method === 'POST' && pathname === '/api/payments/orders') {

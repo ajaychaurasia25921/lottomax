@@ -38,6 +38,8 @@ export const useLottoStore = defineStore('lotto', () => {
   const loading = ref(false);
   const error = ref('');
   const notice = ref('');
+  const playerSearch = ref('');
+  const selectedPlayerId = ref('');
 
   const authForm = ref({
     name: 'Ajay',
@@ -59,6 +61,13 @@ export const useLottoStore = defineStore('lotto', () => {
   });
 
   const pendingPayment = ref(null);
+  const playerActionForm = ref({
+    accountStatus: 'ACTIVE',
+    kycStatus: 'FULL_VERIFIED',
+    direction: 'CREDIT',
+    amount: 500,
+    note: 'Manual owner adjustment'
+  });
 
   const activeGroup = computed(() => (
     groups.value.find((group) => group.id === activeGroupId.value) ?? groups.value[0]
@@ -69,6 +78,17 @@ export const useLottoStore = defineStore('lotto', () => {
   const totalPrizePool = computed(() => groups.value.reduce((sum, group) => sum + group.prizePool, 0));
   const groupSizes = computed(() => groups.value.map((group) => group.size).join('-'));
   const you = computed(() => activeGroup.value?.players.find((player) => player.userId === user.value?.id));
+  const isOwner = computed(() => user.value?.role === 'OWNER');
+  const filteredUsers = computed(() => {
+    const term = playerSearch.value.trim().toLowerCase();
+    if (!term) return users.value;
+    return users.value.filter((item) => [item.name, item.email, item.phone, item.role, item.accountStatus, item.kycStatus]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term)));
+  });
+  const selectedPlayer = computed(() => (
+    users.value.find((item) => item.id === selectedPlayerId.value) ?? filteredUsers.value[0] ?? null
+  ));
 
   const availableNumbers = computed(() => {
     const group = activeGroup.value;
@@ -94,6 +114,7 @@ export const useLottoStore = defineStore('lotto', () => {
     transactions.value = payload.transactions ?? transactions.value;
     payments.value = payload.payments ?? payments.value;
     if (!activeGroupId.value && groups.value.length) activeGroupId.value = groups.value[0].id;
+    if (!selectedPlayerId.value && users.value.length) selectedPlayerId.value = users.value[0].id;
   }
 
   async function run(action, successMessage) {
@@ -208,6 +229,52 @@ export const useLottoStore = defineStore('lotto', () => {
     }), 'Draw settled by backend ledger.');
   }
 
+  function selectPlayer(id) {
+    selectedPlayerId.value = id;
+    const player = users.value.find((item) => item.id === id);
+    if (player) {
+      playerActionForm.value.accountStatus = player.accountStatus ?? 'ACTIVE';
+      playerActionForm.value.kycStatus = player.kycStatus ?? 'BASIC_VERIFIED';
+    }
+  }
+
+  async function updatePlayerStatus() {
+    if (!selectedPlayer.value) return;
+    return run(() => request(`/api/users/${selectedPlayer.value.id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token.value, accountStatus: playerActionForm.value.accountStatus })
+    }), 'Player account status updated.');
+  }
+
+  async function updatePlayerKyc() {
+    if (!selectedPlayer.value) return;
+    return run(() => request(`/api/users/${selectedPlayer.value.id}/kyc`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token.value, kycStatus: playerActionForm.value.kycStatus })
+    }), 'Player KYC status updated.');
+  }
+
+  async function adjustPlayerWallet() {
+    if (!selectedPlayer.value) return;
+    return run(() => request(`/api/users/${selectedPlayer.value.id}/wallet-adjustments`, {
+      method: 'POST',
+      body: JSON.stringify({
+        token: token.value,
+        direction: playerActionForm.value.direction,
+        amount: Number(playerActionForm.value.amount),
+        note: playerActionForm.value.note
+      })
+    }), 'Player wallet adjustment applied.');
+  }
+
+  async function addPlayerNote() {
+    if (!selectedPlayer.value) return;
+    return run(() => request(`/api/users/${selectedPlayer.value.id}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ token: token.value, note: playerActionForm.value.note })
+    }), 'Player note added.');
+  }
+
   return {
     token,
     user,
@@ -223,11 +290,17 @@ export const useLottoStore = defineStore('lotto', () => {
     groupSizes,
     wallet,
     you,
+    isOwner,
+    playerSearch,
+    selectedPlayerId,
+    selectedPlayer,
+    filteredUsers,
     availableNumbers,
     authForm,
     loginForm,
     paymentForm,
     pendingPayment,
+    playerActionForm,
     loading,
     error,
     notice,
@@ -241,6 +314,11 @@ export const useLottoStore = defineStore('lotto', () => {
     confirmPayment,
     joinGroup,
     pickNumber,
-    drawWinner
+    drawWinner,
+    selectPlayer,
+    updatePlayerStatus,
+    updatePlayerKyc,
+    adjustPlayerWallet,
+    addPlayerNote
   };
 });
