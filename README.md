@@ -1,16 +1,18 @@
 # LottoMax
 
-Starter implementation for a LottoMax draw intelligence workspace.
-
-The Manus share URL could not be read from this environment, so this repo starts with a useful baseline:
+Production-ready client implementation for a LottoMax instant group draw platform inspired by the Manus reference experience.
 
 - Vue 3 + Pinia + Vite
-- LottoMax ticket builder
-- Quick Pick generator
-- Simulated draw engine
-- Saved tickets
-- Latest draw comparison
-- Number frequency view
+- Wallet-based group entry
+- 5/10/15/20-player live groups
+- Entry fee and prize pool calculation
+- Unique number-card selection
+- 2-minute pick phase
+- 30-second grace period
+- Live draw simulation
+- Instant wallet payout
+- Transaction history
+- Docker Compose deployment
 
 ## Development
 
@@ -19,6 +21,10 @@ npm install
 npm run dev
 ```
 
-## Next Step
+## Docker
 
-Paste the requirement prompt from the Manus share page so the implementation can be aligned exactly to the requested product behavior, screens, data model, and integrations.
+```bash
+docker compose up --build -d
+```
+
+The app runs at `http://localhost:5180`.

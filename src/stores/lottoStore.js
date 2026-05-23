@@ -1,102 +1,203 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
-const MAIN_MAX = 50;
-const MAIN_COUNT = 7;
-const BONUS_MAX = 50;
+const GROUP_PRESETS = [
+  { size: 5, entryFee: 250 },
+  { size: 10, entryFee: 500 },
+  { size: 15, entryFee: 1000 },
+  { size: 20, entryFee: 2500 }
+];
 
-function drawUnique(count, max) {
-  const pool = Array.from({ length: max }, (_, index) => index + 1);
-  const result = [];
-  while (result.length < count) {
-    const index = Math.floor(Math.random() * pool.length);
-    result.push(pool.splice(index, 1)[0]);
-  }
-  return result.sort((a, b) => a - b);
+const NAMES = ['Aarav', 'Isha', 'Kabir', 'Meera', 'Vihaan', 'Anaya', 'Rohan', 'Tara', 'Dev', 'Naina', 'Arjun', 'Kiara'];
+
+function currency(amount) {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0
+  }).format(amount);
 }
 
-function matchTicket(ticket, draw) {
-  const mainMatches = ticket.numbers.filter((number) => draw.numbers.includes(number)).length;
-  const bonusMatch = ticket.bonus === draw.bonus;
-  return { mainMatches, bonusMatch };
+function randomFrom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function createPlayers(count, maxSize) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `bot-${Date.now()}-${index}`,
+    name: randomFrom(NAMES),
+    number: index < maxSize ? index + 1 : null,
+    isYou: false
+  }));
+}
+
+function makeGroup(index, preset) {
+  const playerCount = Math.max(1, Math.min(preset.size - 1, Math.floor(Math.random() * preset.size)));
+  return {
+    id: `group-${preset.size}-${index}`,
+    title: `${preset.size} Player Rush`,
+    size: preset.size,
+    entryFee: preset.entryFee,
+    prizePool: preset.entryFee * preset.size,
+    status: 'OPEN',
+    players: createPlayers(playerCount, preset.size),
+    selectedNumber: null,
+    pickEndsAt: null,
+    graceEndsAt: null,
+    winnerNumber: null,
+    winnerName: '',
+    drawLog: ['Group opened. Waiting for players.']
+  };
 }
 
 export const useLottoStore = defineStore('lotto', () => {
-  const tickets = ref([]);
-  const draws = ref([
-    { id: 'draw-001', date: '2026-05-22', numbers: [4, 11, 18, 23, 29, 36, 45], bonus: 7, jackpotMillions: 60 },
-    { id: 'draw-002', date: '2026-05-15', numbers: [2, 9, 17, 25, 31, 38, 49], bonus: 12, jackpotMillions: 55 },
-    { id: 'draw-003', date: '2026-05-08', numbers: [6, 14, 19, 28, 34, 41, 50], bonus: 3, jackpotMillions: 50 }
+  const wallet = ref(12500);
+  const groups = ref(GROUP_PRESETS.map((preset, index) => makeGroup(index + 1, preset)));
+  const activeGroupId = ref(groups.value[0].id);
+  const transactions = ref([
+    { id: 'txn-welcome', type: 'CREDIT', amount: 12500, note: 'Welcome wallet balance', at: new Date().toISOString() }
   ]);
 
-  const latestDraw = computed(() => draws.value[0]);
-  const savedTicketCount = computed(() => tickets.value.length);
-  const bestMatch = computed(() => {
-    const latest = latestDraw.value;
-    if (!latest || !tickets.value.length) return null;
-    return tickets.value
-      .map((ticket) => ({ ticket, ...matchTicket(ticket, latest) }))
-      .sort((a, b) => b.mainMatches - a.mainMatches || Number(b.bonusMatch) - Number(a.bonusMatch))[0];
+  const activeGroup = computed(() => groups.value.find((group) => group.id === activeGroupId.value) ?? groups.value[0]);
+  const openGroups = computed(() => groups.value.filter((group) => group.status !== 'COMPLETED'));
+  const totalPrizePool = computed(() => groups.value.reduce((sum, group) => sum + group.prizePool, 0));
+  const groupSizes = computed(() => GROUP_PRESETS.map((preset) => preset.size).join('-'));
+  const you = computed(() => activeGroup.value?.players.find((player) => player.isYou));
+  const availableNumbers = computed(() => {
+    const group = activeGroup.value;
+    if (!group) return [];
+    const taken = new Set(group.players.map((player) => player.number).filter(Boolean));
+    return Array.from({ length: group.size }, (_, index) => index + 1).map((number) => ({
+      number,
+      taken: taken.has(number),
+      mine: you.value?.number === number
+    }));
   });
 
-  const frequency = computed(() => {
-    const counts = new Map();
-    draws.value.forEach((draw) => draw.numbers.forEach((number) => counts.set(number, (counts.get(number) ?? 0) + 1)));
-    return Array.from({ length: MAIN_MAX }, (_, index) => ({
-      number: index + 1,
-      count: counts.get(index + 1) ?? 0
-    })).sort((a, b) => b.count - a.count || a.number - b.number);
-  });
-
-  function quickPick(label = 'Quick Pick') {
-    const ticket = {
-      id: `ticket-${Date.now()}`,
-      label,
-      numbers: drawUnique(MAIN_COUNT, MAIN_MAX),
-      bonus: drawUnique(1, BONUS_MAX)[0],
-      createdAt: new Date().toISOString()
-    };
-    tickets.value = [ticket, ...tickets.value];
-    return ticket;
+  function addTransaction(type, amount, note) {
+    transactions.value = [{
+      id: `txn-${Date.now()}`,
+      type,
+      amount,
+      note,
+      at: new Date().toISOString()
+    }, ...transactions.value].slice(0, 20);
   }
 
-  function saveTicket(ticket) {
-    const normalized = {
-      ...ticket,
-      id: `ticket-${Date.now()}`,
-      numbers: [...ticket.numbers].sort((a, b) => a - b),
-      createdAt: new Date().toISOString()
-    };
-    tickets.value = [normalized, ...tickets.value];
-    return normalized;
+  function selectGroup(id) {
+    activeGroupId.value = id;
   }
 
-  function simulateDraw() {
-    const draw = {
-      id: `draw-${Date.now()}`,
-      date: new Date().toISOString().slice(0, 10),
-      numbers: drawUnique(MAIN_COUNT, MAIN_MAX),
-      bonus: drawUnique(1, BONUS_MAX)[0],
-      jackpotMillions: Math.floor(Math.random() * 40) + 30
-    };
-    draws.value = [draw, ...draws.value].slice(0, 24);
-    return draw;
+  function joinGroup(id) {
+    const group = groups.value.find((item) => item.id === id);
+    if (!group || group.players.some((player) => player.isYou) || group.status !== 'OPEN') return;
+    if (wallet.value < group.entryFee) {
+      group.drawLog = ['Insufficient wallet balance.', ...group.drawLog];
+      return;
+    }
+    wallet.value -= group.entryFee;
+    addTransaction('DEBIT', group.entryFee, `Joined ${group.title}`);
+    group.players = [...group.players, { id: 'you', name: 'You', number: null, isYou: true }];
+    group.drawLog = [`You joined. ${group.size - group.players.length} seats left.`, ...group.drawLog];
+    activeGroupId.value = group.id;
+    if (group.players.length >= group.size) startPicking(group);
   }
 
-  function removeTicket(id) {
-    tickets.value = tickets.value.filter((ticket) => ticket.id !== id);
+  function autoFillGroup(id) {
+    const group = groups.value.find((item) => item.id === id);
+    if (!group || group.status !== 'OPEN') return;
+    while (group.players.length < group.size) {
+      group.players.push({
+        id: `bot-${Date.now()}-${group.players.length}`,
+        name: randomFrom(NAMES),
+        number: null,
+        isYou: false
+      });
+    }
+    startPicking(group);
+  }
+
+  function startPicking(group) {
+    group.status = 'PICKING';
+    group.pickEndsAt = Date.now() + 120_000;
+    group.graceEndsAt = null;
+    group.drawLog = ['Group is full. Pick your unique number card within 2 minutes.', ...group.drawLog];
+    assignBotNumbers(group);
+  }
+
+  function assignBotNumbers(group) {
+    const numbers = Array.from({ length: group.size }, (_, index) => index + 1);
+    group.players = group.players.map((player) => {
+      if (player.isYou || player.number) return player;
+      const index = Math.floor(Math.random() * numbers.length);
+      return { ...player, number: numbers.splice(index, 1)[0] };
+    });
+  }
+
+  function pickNumber(number) {
+    const group = activeGroup.value;
+    if (!group || !you.value || !['PICKING', 'GRACE'].includes(group.status)) return;
+    const ownedByOther = group.players.some((player) => !player.isYou && player.number === number);
+    if (ownedByOther) return;
+    group.players = group.players.map((player) => player.isYou ? { ...player, number } : player);
+    group.selectedNumber = number;
+    group.drawLog = [`You selected number ${number}.`, ...group.drawLog];
+  }
+
+  function advanceClock() {
+    const now = Date.now();
+    groups.value.forEach((group) => {
+      if (group.status === 'PICKING' && group.pickEndsAt && now >= group.pickEndsAt) {
+        group.status = 'GRACE';
+        group.graceEndsAt = Date.now() + 30_000;
+        group.drawLog = ['30-second grace period started. You can still change your number.', ...group.drawLog];
+      }
+      if (group.status === 'GRACE' && group.graceEndsAt && now >= group.graceEndsAt) {
+        drawWinner(group.id);
+      }
+    });
+  }
+
+  function drawWinner(id) {
+    const group = groups.value.find((item) => item.id === id);
+    if (!group || !['PICKING', 'GRACE'].includes(group.status)) return;
+    const chosen = group.players.filter((player) => player.number);
+    const winner = randomFrom(chosen);
+    group.status = 'COMPLETED';
+    group.winnerNumber = winner.number;
+    group.winnerName = winner.name;
+    group.drawLog = [`Number ${winner.number} drawn. Winner: ${winner.name}.`, ...group.drawLog];
+    if (winner.isYou) {
+      wallet.value += group.prizePool;
+      addTransaction('CREDIT', group.prizePool, `Won ${group.title}`);
+    }
+  }
+
+  function resetCompleted() {
+    groups.value = groups.value.map((group, index) => (
+      group.status === 'COMPLETED' ? makeGroup(index + 1, { size: group.size, entryFee: group.entryFee }) : group
+    ));
+    activeGroupId.value = groups.value[0].id;
   }
 
   return {
-    tickets,
-    draws,
-    latestDraw,
-    savedTicketCount,
-    bestMatch,
-    frequency,
-    quickPick,
-    saveTicket,
-    simulateDraw,
-    removeTicket
+    wallet,
+    groups,
+    activeGroupId,
+    activeGroup,
+    openGroups,
+    totalPrizePool,
+    groupSizes,
+    transactions,
+    you,
+    availableNumbers,
+    currency,
+    selectGroup,
+    joinGroup,
+    autoFillGroup,
+    pickNumber,
+    drawWinner,
+    advanceClock,
+    resetCompleted
   };
 });
