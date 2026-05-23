@@ -4,23 +4,26 @@ import { useLottoStore } from './stores/lottoStore';
 
 const store = useLottoStore();
 
-const statusText = computed(() => {
-  const group = store.activeGroup;
-  if (!group) return 'Select a group';
-  if (group.status === 'OPEN') return `${group.size - group.players.length} funded seats left`;
-  if (group.status === 'PICKING') return 'Funded group. Pick numbers to settle draw.';
-  return `Winner: ${group.winnerName} · #${group.winnerNumber}`;
+const totalEscrow = computed(() => store.groups.reduce((sum, group) => sum + group.escrowBalance, 0));
+const activeGroup = computed(() => store.activeGroup);
+const payoutPreview = computed(() => {
+  const pool = activeGroup.value?.escrowBalance || activeGroup.value?.prizePool || 0;
+  const fee = Math.round(pool * 0.15);
+  return { pool, fee, winner: pool - fee };
 });
 
-const payoutPreview = computed(() => {
-  const pool = store.activeGroup?.escrowBalance || store.activeGroup?.prizePool || 0;
-  const fee = Math.round(pool * 0.15);
-  return {
-    pool,
-    fee,
-    winner: pool - fee
-  };
-});
+const steps = [
+  ['STEP 01', 'Join a Group', 'Pick a 5, 10, 15, or 20 player group and pay the entry fee from your wallet.', 'users'],
+  ['STEP 02', 'Pick Your Number', 'When the group fills, you get 2 minutes to pick a unique number card.', 'target'],
+  ['STEP 03', '30s Grace Period', 'A 30-second grace period lets you change your number before the draw.', 'clock'],
+  ['STEP 04', 'Watch & Win', 'All chosen numbers are shuffled live. One card is drawn. Winner takes the prize pool!', 'trophy']
+];
+
+const features = [
+  ['bolt', 'Instant Draws', 'No waiting for scheduled times. Draws start the moment your group fills up.'],
+  ['shield', 'Fair & Transparent', 'The winner is drawn from the actual numbers chosen by players. No hidden algorithms.'],
+  ['trend', 'Instant Payouts', 'Win and get paid instantly to your wallet after backend settlement.']
+];
 
 onMounted(() => {
   store.loadState();
@@ -28,230 +31,212 @@ onMounted(() => {
 </script>
 
 <template>
-  <main class="site-shell">
+  <main class="page">
     <header class="topbar">
-      <a class="brand" href="#home">
-        <span>LM</span>
+      <a class="brand" href="#home" aria-label="LottoMax home">
+        <span class="brand-mark">L</span>
         <strong>LottoMax</strong>
       </a>
       <nav>
-        <a href="#play">Play</a>
-        <a href="#wallet">Wallet</a>
-        <a href="#users">Users</a>
-        <a href="#company">Company</a>
+        <a href="#how">How It Works</a>
+        <a class="nav-cta" href="#play">Play Now</a>
       </nav>
-      <div class="wallet-pill">
-        {{ store.user ? store.currency(store.wallet) : 'Sign in' }}
-      </div>
     </header>
 
     <section id="home" class="hero">
       <div class="hero-copy">
-        <span class="eyebrow">Real-money wallet ledger</span>
-        <h1>Fund wallet. Join a group. Win 85% of the pool.</h1>
+        <span class="eyebrow"><i>+</i> Instant Draws. Real Winners.</span>
+        <h1>Pick a Number. <span>Win Instantly.</span></h1>
         <p>
-          LottoMax now uses backend-controlled users, payment orders, wallet ledger entries,
-          draw escrow, and a company wallet. The winner receives the prize pool minus the
-          15% platform fee credited to LottoMax.
+          Join a group, pick your lucky number, and watch the live draw unfold.
+          When the group fills up, the draw starts automatically. No waiting, no schedules.
         </p>
         <div class="hero-actions">
-          <a class="primary" href="#wallet">Open Payment Portal</a>
-          <a class="secondary" href="#play">Join Live Group</a>
+          <a class="button primary" href="#play">Start Playing Now <b>-></b></a>
+          <a class="button secondary" href="#how">How It Works</a>
         </div>
       </div>
-      <aside class="hero-card">
-        <span>COMPANY WALLET</span>
-        <strong>{{ store.currency(store.companyWallet.balance) }}</strong>
-        <p>15% platform revenue settles here after every completed draw.</p>
+
+      <aside class="live-card">
+        <div class="live-card-top">
+          <span>LIVE GROUPS</span>
+          <strong>5 Open</strong>
+          <p>Groups waiting for players</p>
+        </div>
+        <div class="mini-stats">
+          <article>
+            <span>Total Prize Pools</span>
+            <strong>₹18,50,500</strong>
+          </article>
+          <article>
+            <span>Group Sizes</span>
+            <strong>5-20</strong>
+          </article>
+        </div>
+        <a class="button join-button" href="#play">Join a Group Now</a>
       </aside>
     </section>
 
-    <section class="message-row" v-if="store.error || store.notice">
-      <p v-if="store.error" class="error">{{ store.error }}</p>
-      <p v-if="store.notice" class="notice">{{ store.notice }}</p>
-    </section>
-
-    <section class="stat-grid">
-      <article><span>Total Prize Pools</span><strong>{{ store.currency(store.totalPrizePool) }}</strong></article>
-      <article><span>Live Groups</span><strong>{{ store.openGroups.length }} Open</strong></article>
-      <article><span>Your Wallet</span><strong>{{ store.currency(store.wallet) }}</strong></article>
-    </section>
-
-    <section class="account-grid">
-      <article class="panel">
-        <div class="section-title"><div><span>User Management</span><h2>Create player</h2></div></div>
-        <form class="form-grid" @submit.prevent="store.register">
-          <input v-model="store.authForm.name" placeholder="Full name" autocomplete="name" />
-          <input v-model="store.authForm.email" placeholder="Email" autocomplete="email" />
-          <input v-model="store.authForm.phone" placeholder="Phone" autocomplete="tel" />
-          <input v-model="store.authForm.password" placeholder="Password" type="password" autocomplete="new-password" />
-          <label class="check-row">
-            <input v-model="store.authForm.ageConfirmed" type="checkbox" />
-            <span>I confirm this player is 18+ and eligible to play.</span>
-          </label>
-          <button class="primary" :disabled="store.loading">Create account</button>
-        </form>
-      </article>
-
-      <article class="panel">
-        <div class="section-title"><div><span>Session</span><h2>Sign in</h2></div></div>
-        <form class="form-grid" @submit.prevent="store.login">
-          <input v-model="store.loginForm.email" placeholder="Email" autocomplete="email" />
-          <input v-model="store.loginForm.password" placeholder="Password" type="password" autocomplete="current-password" />
-          <button class="secondary-button" :disabled="store.loading">Sign in</button>
-          <button class="ghost" type="button" @click="store.logout">Sign out</button>
-        </form>
-        <div v-if="store.user" class="identity-card">
-          <strong>{{ store.user.name }}</strong>
-          <span>{{ store.user.email }} · {{ store.user.kycStatus }} · {{ store.user.role }}</span>
-        </div>
-      </article>
-    </section>
-
-    <section id="wallet" class="dashboard-grid">
-      <article class="panel">
-        <div class="section-title"><div><span>Payment Portal</span><h2>Add real funds</h2></div></div>
-        <form class="form-grid" @submit.prevent="store.createPaymentOrder">
-          <input v-model.number="store.paymentForm.amount" min="100" step="50" type="number" placeholder="Amount" />
-          <select v-model="store.paymentForm.method">
-            <option>UPI</option>
-            <option>Card</option>
-            <option>NetBanking</option>
-            <option>Wallet</option>
-          </select>
-          <button class="primary" :disabled="!store.user || store.loading">Create payment order</button>
-        </form>
-        <div v-if="store.pendingPayment" class="payment-order">
-          <span>Provider order</span>
-          <strong>{{ store.pendingPayment.id }}</strong>
-          <p>
-            Amount {{ store.currency(store.pendingPayment.amount) }} is pending provider confirmation.
-            Paste the gateway payment reference after successful capture.
-          </p>
-          <form class="form-grid" @submit.prevent="store.confirmPayment">
-            <input v-model="store.paymentForm.providerReference" placeholder="Gateway payment reference" />
-            <button class="secondary-button" :disabled="store.loading">Verify and credit wallet</button>
-          </form>
-        </div>
-      </article>
-
-      <article class="panel">
-        <div class="section-title"><div><span>Wallet Ledger</span><h2>Transactions</h2></div></div>
-        <div class="txn-list">
-          <article v-for="txn in store.transactions" :key="txn.id">
-            <div><strong>{{ txn.note }}</strong><span>{{ new Date(txn.at).toLocaleString() }}</span></div>
-            <b :class="txn.type.toLowerCase()">{{ txn.type === 'CREDIT' ? '+' : '-' }}{{ store.currency(txn.amount) }}</b>
-          </article>
-          <p v-if="!store.transactions.length" class="empty">No wallet transactions yet.</p>
-        </div>
-      </article>
-    </section>
-
-    <section v-if="store.activeGroup" id="play" class="play-layout">
-      <section class="panel">
-        <div class="section-title">
+    <section id="how" class="how">
+      <div class="section-heading">
+        <h2>How It Works</h2>
+        <p>Four simple steps to win big</p>
+      </div>
+      <div class="steps">
+        <article v-for="step in steps" :key="step[0]" :class="['step-card', step[3]]">
           <div>
-            <span>Real-money groups</span>
-            <h2>Live Groups</h2>
+            <span>{{ step[0] }}</span>
+            <strong>{{ step[1] }}</strong>
+            <p>{{ step[2] }}</p>
           </div>
-        </div>
-        <div class="group-list">
-          <article
-            v-for="group in store.groups"
-            :key="group.id"
-            :class="['group-card', { active: store.activeGroupId === group.id }]"
-            @click="store.selectGroup(group.id)"
-          >
-            <div>
-              <strong>{{ group.title }}</strong>
-              <span>{{ group.players.length }}/{{ group.size }} players · {{ store.currency(group.entryFee) }} entry</span>
-            </div>
-            <b>{{ store.currency(group.prizePool) }}</b>
-            <small>{{ group.status }}</small>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel game-panel">
-        <div class="section-title">
-          <div>
-            <span>Draw Room</span>
-            <h2>{{ store.activeGroup?.title }}</h2>
-          </div>
-          <div class="status-pill">{{ statusText }}</div>
-        </div>
-
-        <div class="progress-line">
-          <i :style="{ width: `${Math.min(100, (store.activeGroup.players.length / store.activeGroup.size) * 100)}%` }"></i>
-        </div>
-
-        <div class="payout-strip">
-          <span>Escrow {{ store.currency(store.activeGroup.escrowBalance) }}</span>
-          <span>Winner {{ store.currency(payoutPreview.winner) }}</span>
-          <span>LottoMax fee {{ store.currency(payoutPreview.fee) }}</span>
-        </div>
-
-        <div class="game-actions">
-          <button class="primary" :disabled="!store.user || store.activeGroup.status !== 'OPEN' || store.loading" @click="store.joinGroup(store.activeGroup.id)">Join with wallet</button>
-          <button class="ghost" :disabled="!store.user || store.activeGroup.status === 'COMPLETED' || store.loading" @click="store.drawWinner(store.activeGroup.id)">Settle draw</button>
-        </div>
-
-        <div class="number-picker">
-          <button
-            v-for="item in store.availableNumbers"
-            :key="item.number"
-            :class="{ taken: item.taken && !item.mine, mine: item.mine }"
-            :disabled="(item.taken && !item.mine) || !store.you || store.activeGroup.status === 'COMPLETED'"
-            @click="store.pickNumber(item.number)"
-          >
-            {{ item.number }}
-          </button>
-        </div>
-
-        <div class="player-grid">
-          <article v-for="player in store.activeGroup.players" :key="player.userId" :class="{ you: player.userId === store.user?.id }">
-            <strong>{{ player.name }}</strong>
-            <span>{{ player.number ? `#${player.number}` : 'Awaiting pick' }}</span>
-          </article>
-          <p v-if="!store.activeGroup.players.length" class="empty">No funded players have joined yet.</p>
-        </div>
-      </section>
-    </section>
-
-    <section v-if="store.activeGroup" class="dashboard-grid">
-      <article class="panel">
-        <div class="section-title"><div><span>Draw Feed</span><h2>Settlement timeline</h2></div></div>
-        <div class="log-list">
-          <p v-for="entry in store.activeGroup.drawLog" :key="entry">{{ entry }}</p>
-        </div>
-      </article>
-      <article id="company" class="panel">
-        <div class="section-title"><div><span>Company Revenue</span><h2>LottoMax wallet</h2></div></div>
-        <div class="company-card">
-          <strong>{{ store.currency(store.companyWallet.balance) }}</strong>
-          <span>Every completed draw credits 15% of escrow to the company wallet and 85% to the winning player.</span>
-        </div>
-      </article>
-    </section>
-
-    <section id="users" class="panel user-panel">
-      <div class="section-title"><div><span>Users</span><h2>Registered players</h2></div></div>
-      <div class="user-list">
-        <article v-for="item in store.users" :key="item.id">
-          <strong>{{ item.name }}</strong>
-          <span>{{ item.email }}</span>
-          <b>{{ store.currency(item.wallet.balance) }}</b>
+          <b>{{ step[3] === 'users' ? 'oo' : step[3] === 'target' ? '@' : step[3] === 'clock' ? 'o' : 'Y' }}</b>
         </article>
-        <p v-if="!store.users.length" class="empty">Create the first player account to start.</p>
       </div>
     </section>
 
-    <footer>
-      <strong>Real-money mode requires licensed payment and gaming compliance.</strong>
-      <p>
-        Payment orders, provider references, wallet balances, escrow, 15% LottoMax revenue,
-        and winner payouts are controlled by the backend. Play responsibly. Must be 18+.
-      </p>
+    <section class="feature-grid">
+      <article v-for="feature in features" :key="feature[1]" :class="feature[0]">
+        <b>{{ feature[0] === 'bolt' ? 'Z' : feature[0] === 'shield' ? 'S' : '/' }}</b>
+        <strong>{{ feature[1] }}</strong>
+        <p>{{ feature[2] }}</p>
+      </article>
+    </section>
+
+    <section class="proof-strip">
+      <article><strong>Instant</strong><span>Draw When Full</span></article>
+      <article><strong>5-20</strong><span>Players Per Group</span></article>
+      <article><strong>100%</strong><span>Fair & Transparent</span></article>
+    </section>
+
+    <section class="cta-band">
+      <h2>Ready to Win?</h2>
+      <p>Join a group, pick your number, and watch the draw unfold live. Your next win is just one game away.</p>
+      <a class="button cta-button" href="#play">Start Playing Now</a>
+    </section>
+
+    <section id="play" class="play-console">
+      <div class="section-heading">
+        <h2>Play Now</h2>
+        <p>Real-money wallet, payment portal, escrow, and 15% LottoMax platform settlement.</p>
+      </div>
+
+      <div v-if="store.error || store.notice" class="message-row">
+        <p v-if="store.error" class="error">{{ store.error }}</p>
+        <p v-if="store.notice" class="notice">{{ store.notice }}</p>
+      </div>
+
+      <div class="console-grid">
+        <article class="glass-panel">
+          <span>User Management</span>
+          <h3>{{ store.user ? store.user.name : 'Create player' }}</h3>
+          <form v-if="!store.user" class="form-grid" @submit.prevent="store.register">
+            <input v-model="store.authForm.name" placeholder="Full name" />
+            <input v-model="store.authForm.email" placeholder="Email" />
+            <input v-model="store.authForm.phone" placeholder="Phone" />
+            <input v-model="store.authForm.password" type="password" placeholder="Password" />
+            <label><input v-model="store.authForm.ageConfirmed" type="checkbox" /> I confirm this player is 18+</label>
+            <button class="button primary" :disabled="store.loading">Create account</button>
+          </form>
+          <form v-else class="form-grid compact" @submit.prevent="store.logout">
+            <p>{{ store.user.email }} · {{ store.user.kycStatus }} · {{ store.user.role }}</p>
+            <button class="button secondary" type="submit">Sign out</button>
+          </form>
+        </article>
+
+        <article class="glass-panel">
+          <span>Payment Portal</span>
+          <h3>{{ store.currency(store.wallet) }}</h3>
+          <form class="form-grid" @submit.prevent="store.createPaymentOrder">
+            <input v-model.number="store.paymentForm.amount" min="100" step="50" type="number" placeholder="Amount" />
+            <select v-model="store.paymentForm.method">
+              <option>UPI</option>
+              <option>Card</option>
+              <option>NetBanking</option>
+              <option>Wallet</option>
+            </select>
+            <button class="button primary" :disabled="!store.user || store.loading">Create payment order</button>
+          </form>
+          <form v-if="store.pendingPayment" class="form-grid confirm" @submit.prevent="store.confirmPayment">
+            <small>Order {{ store.pendingPayment.id }} · {{ store.currency(store.pendingPayment.amount) }}</small>
+            <input v-model="store.paymentForm.providerReference" placeholder="Gateway payment reference" />
+            <button class="button secondary" :disabled="store.loading">Verify and credit wallet</button>
+          </form>
+        </article>
+      </div>
+
+      <div class="game-layout" v-if="activeGroup">
+        <section class="glass-panel groups-panel">
+          <span>Live Groups</span>
+          <h3>Join a Group Now</h3>
+          <div class="group-list">
+            <button
+              v-for="group in store.groups"
+              :key="group.id"
+              :class="{ active: store.activeGroupId === group.id }"
+              @click="store.selectGroup(group.id)"
+            >
+              <strong>{{ group.title }}</strong>
+              <span>{{ group.players.length }}/{{ group.size }} players · {{ store.currency(group.entryFee) }}</span>
+              <b>{{ group.status }}</b>
+            </button>
+          </div>
+        </section>
+
+        <section class="glass-panel draw-panel">
+          <span>Live Draw Room</span>
+          <h3>{{ activeGroup.title }}</h3>
+          <div class="draw-stats">
+            <article><span>Escrow</span><b>{{ store.currency(activeGroup.escrowBalance) }}</b></article>
+            <article><span>Winner</span><b>{{ store.currency(payoutPreview.winner) }}</b></article>
+            <article><span>LottoMax</span><b>{{ store.currency(payoutPreview.fee) }}</b></article>
+          </div>
+          <div class="draw-actions">
+            <button class="button primary" :disabled="!store.user || activeGroup.status !== 'OPEN' || store.loading" @click="store.joinGroup(activeGroup.id)">Join with wallet</button>
+            <button class="button secondary" :disabled="!store.user || activeGroup.status === 'COMPLETED' || store.loading" @click="store.drawWinner(activeGroup.id)">Settle draw</button>
+          </div>
+          <div class="number-grid">
+            <button
+              v-for="item in store.availableNumbers"
+              :key="item.number"
+              :class="{ taken: item.taken && !item.mine, mine: item.mine }"
+              :disabled="(item.taken && !item.mine) || !store.you || activeGroup.status === 'COMPLETED'"
+              @click="store.pickNumber(item.number)"
+            >
+              {{ item.number }}
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div class="ledger-grid">
+        <article class="glass-panel">
+          <span>Company Wallet</span>
+          <h3>{{ store.currency(store.companyWallet.balance) }}</h3>
+          <p>LottoMax receives 15% of settled escrow. Current active escrow is {{ store.currency(totalEscrow) }}.</p>
+        </article>
+        <article class="glass-panel">
+          <span>Wallet Ledger</span>
+          <h3>Transactions</h3>
+          <div class="ledger-list">
+            <p v-for="txn in store.transactions" :key="txn.id">
+              <strong>{{ txn.note }}</strong>
+              <b :class="txn.type.toLowerCase()">{{ txn.type === 'CREDIT' ? '+' : '-' }}{{ store.currency(txn.amount) }}</b>
+            </p>
+            <small v-if="!store.transactions.length">No wallet transactions yet.</small>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <a class="brand" href="#home">
+        <span class="brand-mark">L</span>
+        <strong>LottoMax</strong>
+      </a>
+      <nav>
+        <a href="#how">How It Works</a>
+        <a class="nav-cta" href="#play">Play Now</a>
+      </nav>
     </footer>
   </main>
 </template>
