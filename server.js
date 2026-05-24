@@ -1,5 +1,6 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { request as httpsRequest } from 'node:https';
 import { extname, join, resolve } from 'node:path';
 import { createServer } from 'node:http';
 import QRCode from 'qrcode';
@@ -8,10 +9,16 @@ const PORT = Number(process.env.PORT ?? 5180);
 const DATA_DIR = process.env.LOTTOMAX_DATA_DIR ?? './data';
 const DB_FILE = join(DATA_DIR, 'lottomax.json');
 const PUBLIC_DIR = resolve('./dist');
+
+loadLocalEnv();
+
 const PLATFORM_FEE_RATE = 0.15;
-const PAYMENT_PROVIDER = process.env.LOTTOMAX_PAYMENT_PROVIDER ?? 'manual-provider';
+const PAYMENT_PROVIDER = process.env.LOTTOMAX_PAYMENT_PROVIDER ?? 'razorpay';
 const COMPANY_UPI_ID = process.env.LOTTOMAX_COMPANY_UPI_ID ?? 'lottomax@upi';
 const COMPANY_PAYEE_NAME = process.env.LOTTOMAX_COMPANY_PAYEE_NAME ?? 'LottoMax';
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID ?? '';
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? '';
+const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
 
 const GROUP_PRESETS = [
   { id: 'group-5', title: '5 Player Rush', size: 5, entryFee: 250 },
@@ -32,6 +39,21 @@ const MIME_TYPES = {
 
 function now() {
   return new Date().toISOString();
+}
+
+function loadLocalEnv() {
+  const envPath = resolve('.env');
+  if (!existsSync(envPath)) return;
+  const lines = readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const separator = trimmed.indexOf('=');
+    if (separator === -1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
 }
 
 function id(prefix) {
@@ -147,11 +169,95 @@ function paymentOrderView(order) {
   return {
     ...order,
     upiPayload: order.upiPayload ?? paymentUpiPayload(order),
-    qrCodeUrl: `/api/payments/orders/${order.id}/qr`
+    qrCodeUrl: `/api/payments/orders/${order.id}/qr`,
+    razorpay: order.razorpayOrderId ? {
+      keyId: RAZORPAY_KEY_ID,
+      orderId: order.razorpayOrderId,
+      amountPaise: order.amountPaise,
+      currency: order.currency,
+      name: COMPANY_PAYEE_NAME,
+      description: `LottoMax wallet top-up ${order.id}`
+    } : null
   };
 }
 
-function parseBody(request) {
+function razorpayConfigured() {
+  return Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET);
+}
+
+function razorpayRequest(pathname, payload) {
+  if (!razorpayConfigured()) {
+    throw Object.assign(new Error('Razorpay keys are not configured on the server'), { status: 503 });
+  }
+
+  return new Promise((resolveRequest, rejectRequest) => {
+    const body = JSON.stringify(payload);
+    const request = httpsRequest({
+      hostname: 'api.razorpay.com',
+      path: pathname,
+      method: 'POST',
+      auth: `${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`,
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    }, (razorpayResponse) => {
+      let responseBody = '';
+      razorpayResponse.on('data', (chunk) => {
+        responseBody += chunk;
+      });
+      razorpayResponse.on('end', () => {
+        const parsed = responseBody ? JSON.parse(responseBody) : {};
+        if (razorpayResponse.statusCode >= 200 && razorpayResponse.statusCode < 300) {
+          resolveRequest(parsed);
+          return;
+        }
+        rejectRequest(Object.assign(new Error(parsed.error?.description ?? 'Razorpay request failed'), { status: 502 }));
+      });
+    });
+    request.on('error', (error) => {
+      rejectRequest(Object.assign(new Error(`Razorpay network error: ${error.message}`), { status: 502 }));
+    });
+    request.write(body);
+    request.end();
+  });
+}
+
+async function createRazorpayOrder(paymentOrder) {
+  const amountPaise = Math.round(paymentOrder.amount * 100);
+  const razorpayOrder = await razorpayRequest('/v1/orders', {
+    amount: amountPaise,
+    currency: paymentOrder.currency,
+    receipt: paymentOrder.id,
+    notes: {
+      lottomaxPaymentId: paymentOrder.id,
+      userId: paymentOrder.userId
+    }
+  });
+  return {
+    razorpayOrderId: razorpayOrder.id,
+    amountPaise,
+    providerOrderStatus: razorpayOrder.status
+  };
+}
+
+function verifyRazorpayPaymentSignature({ razorpayOrderId, razorpayPaymentId, razorpaySignature }) {
+  if (!razorpayConfigured()) {
+    throw Object.assign(new Error('Razorpay keys are not configured on the server'), { status: 503 });
+  }
+  const expected = createHmac('sha256', RAZORPAY_KEY_SECRET)
+    .update(`${razorpayOrderId}|${razorpayPaymentId}`)
+    .digest('hex');
+  return expected === razorpaySignature;
+}
+
+function verifyRazorpayWebhookSignature(rawBody, signature) {
+  if (!RAZORPAY_WEBHOOK_SECRET) return false;
+  const expected = createHmac('sha256', RAZORPAY_WEBHOOK_SECRET).update(rawBody).digest('hex');
+  return expected === signature;
+}
+
+function parseBody(request, { raw = false } = {}) {
   return new Promise((resolveBody, rejectBody) => {
     let body = '';
     request.on('data', (chunk) => {
@@ -162,6 +268,7 @@ function parseBody(request) {
       }
     });
     request.on('end', () => {
+      if (raw) return resolveBody(body);
       if (!body) return resolveBody({});
       try {
         resolveBody(JSON.parse(body));
@@ -255,7 +362,15 @@ async function handleApi(request, response, pathname) {
   const query = new URL(request.url, `http://${request.headers.host}`).searchParams;
 
   if (method === 'GET' && pathname === '/api/health') {
-    return json(response, 200, { ok: true, provider: PAYMENT_PROVIDER, at: now() });
+    return json(response, 200, { ok: true, provider: PAYMENT_PROVIDER, razorpayConfigured: razorpayConfigured(), at: now() });
+  }
+
+  if (method === 'GET' && pathname === '/api/payments/config') {
+    return json(response, 200, {
+      provider: PAYMENT_PROVIDER,
+      razorpayConfigured: razorpayConfigured(),
+      razorpayKeyId: RAZORPAY_KEY_ID
+    });
   }
 
   if (method === 'GET' && pathname === '/api/public-state') {
@@ -281,6 +396,30 @@ async function handleApi(request, response, pathname) {
       }
     });
     return svg(response, 200, qr);
+  }
+
+  if (method === 'POST' && pathname === '/api/payments/razorpay-webhook') {
+    const rawBody = await parseBody(request, { raw: true });
+    if (!verifyRazorpayWebhookSignature(rawBody, request.headers['x-razorpay-signature'] ?? '')) {
+      throw Object.assign(new Error('Invalid Razorpay webhook signature'), { status: 401 });
+    }
+    const event = JSON.parse(rawBody || '{}');
+    const razorpayOrderId = event.payload?.payment?.entity?.order_id;
+    const razorpayPaymentId = event.payload?.payment?.entity?.id;
+    const order = db.payments.find((payment) => payment.razorpayOrderId === razorpayOrderId);
+    if (order && order.status === 'PENDING_RAZORPAY_CAPTURE' && razorpayPaymentId) {
+      const user = db.users.find((item) => item.id === order.userId);
+      order.status = 'CAPTURED';
+      order.providerReference = razorpayPaymentId;
+      order.capturedAt = now();
+      creditWallet(db, user, order.amount, 'Wallet top-up via Razorpay webhook', {
+        paymentId: order.id,
+        razorpayOrderId,
+        razorpayPaymentId
+      });
+      writeDb(db);
+    }
+    return json(response, 200, { ok: true });
   }
 
   const body = await parseBody(request);
@@ -400,8 +539,8 @@ async function handleApi(request, response, pathname) {
       userId: user.id,
       amount,
       currency: 'INR',
-      method: body.method ?? 'UPI',
-      status: 'PENDING_PROVIDER_CONFIRMATION',
+      method: 'Razorpay Checkout',
+      status: 'PENDING_RAZORPAY_CAPTURE',
       provider: PAYMENT_PROVIDER,
       upiPayee: COMPANY_UPI_ID,
       upiPayload: '',
@@ -409,6 +548,9 @@ async function handleApi(request, response, pathname) {
       createdAt: now()
     };
     paymentOrder.upiPayload = paymentUpiPayload(paymentOrder);
+    if (PAYMENT_PROVIDER === 'razorpay') {
+      Object.assign(paymentOrder, await createRazorpayOrder(paymentOrder));
+    }
     db.payments.push(paymentOrder);
     writeDb(db);
     return json(response, 201, { paymentOrder: paymentOrderView(paymentOrder), ...statePayload(db, user) });
@@ -418,14 +560,37 @@ async function handleApi(request, response, pathname) {
     const user = requireUser(db, body.token);
     const order = db.payments.find((payment) => payment.id === body.orderId && payment.userId === user.id);
     if (!order) throw Object.assign(new Error('Payment order not found'), { status: 404 });
-    if (order.status !== 'PENDING_PROVIDER_CONFIRMATION') throw Object.assign(new Error('Payment order is already processed'), { status: 409 });
-    if (!body.providerReference || String(body.providerReference).trim().length < 6) {
-      throw Object.assign(new Error('Provider payment reference is required after payment gateway success'), { status: 400 });
+    if (order.status !== 'PENDING_RAZORPAY_CAPTURE' && order.status !== 'PENDING_PROVIDER_CONFIRMATION') {
+      throw Object.assign(new Error('Payment order is already processed'), { status: 409 });
+    }
+    if (order.provider === 'razorpay') {
+      const razorpayPaymentId = String(body.razorpayPaymentId ?? '');
+      const razorpaySignature = String(body.razorpaySignature ?? '');
+      if (!razorpayPaymentId || !razorpaySignature) {
+        throw Object.assign(new Error('Razorpay payment ID and signature are required'), { status: 400 });
+      }
+      if (!verifyRazorpayPaymentSignature({
+        razorpayOrderId: order.razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature
+      })) {
+        throw Object.assign(new Error('Razorpay signature verification failed'), { status: 401 });
+      }
+      order.providerReference = razorpayPaymentId;
+      order.razorpaySignature = razorpaySignature;
+    } else {
+      if (!body.providerReference || String(body.providerReference).trim().length < 6) {
+        throw Object.assign(new Error('Provider payment reference is required after payment gateway success'), { status: 400 });
+      }
+      order.providerReference = String(body.providerReference).trim();
     }
     order.status = 'CAPTURED';
-    order.providerReference = String(body.providerReference).trim();
     order.capturedAt = now();
-    creditWallet(db, user, order.amount, `Wallet top-up via ${order.method}`, { paymentId: order.id, providerReference: order.providerReference });
+    creditWallet(db, user, order.amount, `Wallet top-up via ${order.method}`, {
+      paymentId: order.id,
+      providerReference: order.providerReference,
+      razorpayOrderId: order.razorpayOrderId
+    });
     writeDb(db);
     return json(response, 200, statePayload(db, user));
   }

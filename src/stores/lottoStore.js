@@ -56,7 +56,6 @@ export const useLottoStore = defineStore('lotto', () => {
 
   const paymentForm = ref({
     amount: 1000,
-    method: 'UPI',
     providerReference: ''
   });
 
@@ -183,14 +182,15 @@ export const useLottoStore = defineStore('lotto', () => {
     return run(async () => {
       const payload = await request('/api/payments/orders', {
         method: 'POST',
-        body: JSON.stringify({ token: token.value, amount: Number(paymentForm.value.amount), method: paymentForm.value.method })
+        body: JSON.stringify({ token: token.value, amount: Number(paymentForm.value.amount) })
       });
       pendingPayment.value = payload.paymentOrder;
+      await openRazorpayCheckout(payload.paymentOrder);
       return payload;
-    }, 'Payment order created. Complete it in your payment provider portal.');
+    }, 'Razorpay payment portal opened.');
   }
 
-  async function confirmPayment() {
+  async function confirmPayment(razorpayResponse = null) {
     if (!pendingPayment.value) return;
     return run(async () => {
       const payload = await request('/api/payments/confirm', {
@@ -198,13 +198,57 @@ export const useLottoStore = defineStore('lotto', () => {
         body: JSON.stringify({
           token: token.value,
           orderId: pendingPayment.value.id,
-          providerReference: paymentForm.value.providerReference
+          providerReference: paymentForm.value.providerReference,
+          razorpayPaymentId: razorpayResponse?.razorpay_payment_id,
+          razorpayOrderId: razorpayResponse?.razorpay_order_id,
+          razorpaySignature: razorpayResponse?.razorpay_signature
         })
       });
       pendingPayment.value = null;
       paymentForm.value.providerReference = '';
       return payload;
-    }, 'Payment verified and wallet credited.');
+    }, 'Razorpay payment verified and wallet credited.');
+  }
+
+  function loadRazorpayScript() {
+    if (window.Razorpay) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Unable to load Razorpay Checkout'));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function openRazorpayCheckout(paymentOrder) {
+    if (!paymentOrder?.razorpay) return;
+    await loadRazorpayScript();
+    const checkout = new window.Razorpay({
+      key: paymentOrder.razorpay.keyId,
+      amount: paymentOrder.razorpay.amountPaise,
+      currency: paymentOrder.razorpay.currency,
+      name: paymentOrder.razorpay.name,
+      description: paymentOrder.razorpay.description,
+      order_id: paymentOrder.razorpay.orderId,
+      prefill: {
+        name: user.value?.name,
+        email: user.value?.email,
+        contact: user.value?.phone
+      },
+      theme: {
+        color: '#f5b942'
+      },
+      handler: (razorpayResponse) => {
+        confirmPayment(razorpayResponse);
+      },
+      modal: {
+        ondismiss: () => {
+          setMessage('Razorpay checkout closed. You can reopen the payment portal from the pending order.');
+        }
+      }
+    });
+    checkout.open();
   }
 
   async function joinGroup(id) {
@@ -312,6 +356,7 @@ export const useLottoStore = defineStore('lotto', () => {
     selectGroup,
     createPaymentOrder,
     confirmPayment,
+    openRazorpayCheckout,
     joinGroup,
     pickNumber,
     drawWinner,

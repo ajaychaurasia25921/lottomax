@@ -17,11 +17,10 @@ Production-shaped LottoMax instant group draw platform inspired by the Manus ref
 - Transaction history
 - Docker Compose deployment
 
-Actual money capture should be connected to a licensed payment provider such as Razorpay,
-Stripe, Cashfree, or a bank gateway through `LOTTOMAX_PAYMENT_PROVIDER` and a secure webhook.
-The included portal creates backend payment orders and requires a provider reference before
-crediting the wallet, so balance changes are no longer browser-only demo state. Configure
-`LOTTOMAX_COMPANY_UPI_ID` and `LOTTOMAX_COMPANY_PAYEE_NAME` to generate the production QR.
+Actual money capture is wired through Razorpay Checkout. The server creates Razorpay
+orders, the browser opens the Razorpay payment portal, and wallet credit happens only
+after the returned Razorpay payment signature is verified server-side. Configure
+`RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` in `.env`.
 
 ## Development
 
@@ -34,6 +33,15 @@ For local API development in another terminal:
 
 ```bash
 PORT=5181 LOTTOMAX_DATA_DIR=./data npm run server
+```
+
+Razorpay local setup:
+
+```bash
+cp .env.example .env
+# fill RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET from your Razorpay test keys CSV
+npm run build
+npm run server
 ```
 
 ## Docker
@@ -50,7 +58,7 @@ The repository includes `render.yaml` for a GitHub-connected Render deployment.
 
 1. Push `main` to GitHub.
 2. In Render, create a new Blueprint from `ajaychaurasia25921/lottomax`.
-3. Set `LOTTOMAX_PAYMENT_PROVIDER` and payment gateway secrets from `.env.production.example`.
+3. Set `LOTTOMAX_PAYMENT_PROVIDER=razorpay` and Razorpay gateway secrets from `.env.example`.
 4. Configure a persistent data disk or replace the JSON ledger with a managed database before accepting public real-money traffic.
 5. Enable provider webhooks for payment capture verification.
 

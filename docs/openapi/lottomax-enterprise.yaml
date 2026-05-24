@@ -61,7 +61,7 @@ paths:
     post:
       tags: [Wallet]
       operationId: createDeposit
-      summary: Create a gateway deposit intent.
+      summary: Create a Razorpay Checkout order for wallet funding.
       parameters:
         - $ref: "#/components/parameters/WalletId"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -73,7 +73,7 @@ paths:
               $ref: "#/components/schemas/CreateDepositRequest"
       responses:
         "201":
-          description: Deposit intent created.
+          description: Razorpay order created.
           content:
             application/json:
               schema:
@@ -101,19 +101,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WithdrawalDecision"
-  /payment-webhooks/gateway:
+  /payment-webhooks/razorpay:
     post:
       tags: [Wallet]
-      operationId: receiveGatewayWebhook
-      summary: Receive signed payment gateway webhook.
+      operationId: receiveRazorpayWebhook
+      summary: Receive signed Razorpay webhook.
       security:
-        - gatewaySignature: []
+        - razorpaySignature: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/GatewayWebhook"
+              $ref: "#/components/schemas/RazorpayWebhook"
       responses:
         "204":
           description: Webhook accepted.
@@ -217,10 +217,10 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Auth0 or AWS Cognito JWT with MFA and KYC claims.
-    gatewaySignature:
+    razorpaySignature:
       type: apiKey
       in: header
-      name: X-Gateway-Signature
+      name: X-Razorpay-Signature
   parameters:
     WalletId:
       name: walletId
@@ -325,23 +325,39 @@ components:
           format: date-time
     CreateDepositRequest:
       type: object
-      required: [amount, gatewayToken]
+      required: [amount]
       properties:
         amount:
           $ref: "#/components/schemas/Money"
-        gatewayToken:
-          type: string
     DepositIntent:
       type: object
-      required: [depositId, status, gatewayReference]
+      required: [depositId, status, razorpay]
       properties:
         depositId:
           type: string
           format: uuid
         status:
           type: string
-          enum: [created, pending_capture, captured, failed]
-        gatewayReference:
+          enum: [created, pending_razorpay_capture, captured, failed]
+        razorpay:
+          $ref: "#/components/schemas/RazorpayCheckout"
+    RazorpayCheckout:
+      type: object
+      required: [keyId, orderId, amountPaise, currency, name, description]
+      properties:
+        keyId:
+          type: string
+        orderId:
+          type: string
+        amountPaise:
+          type: integer
+          format: int64
+        currency:
+          type: string
+          enum: [INR]
+        name:
+          type: string
+        description:
           type: string
     WithdrawalRequest:
       type: object
@@ -363,19 +379,17 @@ components:
           enum: [instant_processing, manual_review, denied]
         reason:
           type: string
-    GatewayWebhook:
+    RazorpayWebhook:
       type: object
-      required: [eventId, gatewayReference, eventType, amount]
+      description: Razorpay webhook payload. Signature is verified with X-Razorpay-Signature.
+      required: [event, payload]
       properties:
-        eventId:
+        event:
           type: string
-        gatewayReference:
-          type: string
-        eventType:
-          type: string
-          enum: [payment_captured, payout_completed, payout_failed]
-        amount:
-          $ref: "#/components/schemas/Money"
+          example: payment.captured
+        payload:
+          type: object
+          additionalProperties: true
     BroadGroupCreateRequest:
       type: object
       required: [name, maxPlayers, ticketPrice]

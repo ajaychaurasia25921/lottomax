@@ -157,26 +157,17 @@ onMounted(() => {
           <h3>{{ store.currency(store.wallet) }}</h3>
           <form class="form-grid" @submit.prevent="store.createPaymentOrder">
             <input v-model.number="store.paymentForm.amount" min="100" step="50" type="number" placeholder="Amount" />
-            <select v-model="store.paymentForm.method">
-              <option>UPI</option>
-              <option>Card</option>
-              <option>NetBanking</option>
-              <option>Wallet</option>
-            </select>
-            <button class="button primary" :disabled="!store.user || store.loading">Create payment order</button>
+            <button class="button primary" :disabled="!store.user || store.loading">Pay with Razorpay</button>
           </form>
-          <form v-if="store.pendingPayment" class="form-grid confirm" @submit.prevent="store.confirmPayment">
+          <form v-if="store.pendingPayment" class="form-grid confirm" @submit.prevent="store.openRazorpayCheckout(store.pendingPayment)">
             <small>Order {{ store.pendingPayment.id }} · {{ store.currency(store.pendingPayment.amount) }}</small>
             <div class="qr-payment">
-              <img :src="store.pendingPayment.qrCodeUrl" alt="UPI payment QR code" />
               <div>
-                <strong>Scan and pay</strong>
-                <span>{{ store.pendingPayment.upiPayee }}</span>
-                <a :href="store.pendingPayment.upiPayload">Open UPI app</a>
+                <strong>Razorpay payment portal</strong>
+                <span>{{ store.pendingPayment.razorpay?.orderId || store.pendingPayment.provider }}</span>
+                <button class="button secondary" type="submit" :disabled="store.loading">Reopen Razorpay Checkout</button>
               </div>
             </div>
-            <input v-model="store.paymentForm.providerReference" placeholder="Gateway payment reference" />
-            <button class="button secondary" :disabled="store.loading">Verify and credit wallet</button>
           </form>
         </article>
       </div>
