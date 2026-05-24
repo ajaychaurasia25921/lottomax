@@ -1,8 +1,11 @@
 package com.lottomax.enterprise.api;
 
+import com.lottomax.enterprise.model.BuyTicketRequest;
 import com.lottomax.enterprise.model.Money;
 import com.lottomax.enterprise.model.SettleDrawRequest;
 import com.lottomax.enterprise.model.SettlementResponse;
+import com.lottomax.enterprise.model.TicketResponse;
+import com.lottomax.enterprise.service.LotteryService;
 import com.lottomax.enterprise.service.PayoutSplit;
 import com.lottomax.enterprise.service.SettlementService;
 import jakarta.inject.Inject;
@@ -21,6 +24,15 @@ import java.util.UUID;
 public class SettlementResource {
     @Inject
     SettlementService settlementService;
+
+    @Inject
+    LotteryService lotteryService;
+
+    @POST
+    @Path("/{drawId}/tickets")
+    public TicketResponse buyTicket(@PathParam("drawId") UUID drawId, @Valid BuyTicketRequest request) {
+        return lotteryService.buyTicket(drawId, request);
+    }
 
     @POST
     @Path("/{drawId}/settlement")

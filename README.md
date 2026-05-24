@@ -67,21 +67,13 @@ docs/
   investor-pitch-deck.md
   ui-ux-wireframes.md
   openapi/lottomax-enterprise.yaml
+  database/postgres-schema.sql
 enterprise/
-  backend/
-    cmd/api/main.go
-    db/schema.sql
-    internal/audit
-    internal/http
-    internal/ledger
-    internal/models
-    internal/money
-    internal/rng
-    internal/services
   backend-java/
     build.gradle.kts
     settings.gradle.kts
     src/main/java/com/lottomax/enterprise
+    src/main/resources/application.properties
     src/test/java/com/lottomax/enterprise
   frontend/
     src/app/onboarding/page.tsx
@@ -93,14 +85,7 @@ enterprise/
     src/store/walletStore.ts
 ```
 
-Backend verification:
-
-```bash
-cd enterprise/backend
-go test ./...
-```
-
-The enterprise backend contains the lottery broad group engine, cryptographic RNG interface, append-only ledger writer, admin audit logging, automated settlement service, and unit tests for exact 15%/85% payout math.
+The enterprise backend is a Gradle/Quarkus service. It contains CIAM onboarding endpoints, wallet deposit and withdrawal flows, payment webhook handling, lottery broad group controls, ticket purchase, automated settlement, admin audit logging, a risk dashboard, and tests for exact 15%/85% payout math plus the under-$5,000 instant withdrawal rule.
 
 OpenAPI specification:
 
