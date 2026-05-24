@@ -179,15 +179,22 @@ export const useLottoStore = defineStore('lotto', () => {
   }
 
   async function createPaymentOrder() {
-    return run(async () => {
+    const payload = await run(async () => {
       const payload = await request('/api/payments/orders', {
         method: 'POST',
         body: JSON.stringify({ token: token.value, amount: Number(paymentForm.value.amount) })
       });
       pendingPayment.value = payload.paymentOrder;
-      await openRazorpayCheckout(payload.paymentOrder);
       return payload;
-    }, 'Razorpay payment portal opened.');
+    }, 'Razorpay order created.');
+
+    try {
+      await openRazorpayCheckout(payload.paymentOrder);
+      setMessage('Razorpay payment portal opened.');
+    } catch (err) {
+      setMessage('Razorpay order created. Checkout could not open automatically; use Reopen Checkout or Capture test payment.', err.message);
+    }
+    return payload;
   }
 
   async function confirmPayment(razorpayResponse = null) {
@@ -222,7 +229,7 @@ export const useLottoStore = defineStore('lotto', () => {
   }
 
   async function openRazorpayCheckout(paymentOrder) {
-    if (!paymentOrder?.razorpay) return;
+    if (!paymentOrder?.razorpay) throw new Error('Razorpay order details are missing');
     await loadRazorpayScript();
     const checkout = new window.Razorpay({
       key: paymentOrder.razorpay.keyId,
@@ -249,6 +256,21 @@ export const useLottoStore = defineStore('lotto', () => {
       }
     });
     checkout.open();
+  }
+
+  async function testCapturePayment() {
+    if (!pendingPayment.value) return;
+    return run(async () => {
+      const payload = await request('/api/payments/test-capture', {
+        method: 'POST',
+        body: JSON.stringify({
+          token: token.value,
+          orderId: pendingPayment.value.id
+        })
+      });
+      pendingPayment.value = null;
+      return payload;
+    }, 'Razorpay test payment captured and wallet credited.');
   }
 
   async function joinGroup(id) {
@@ -357,6 +379,7 @@ export const useLottoStore = defineStore('lotto', () => {
     createPaymentOrder,
     confirmPayment,
     openRazorpayCheckout,
+    testCapturePayment,
     joinGroup,
     pickNumber,
     drawWinner,

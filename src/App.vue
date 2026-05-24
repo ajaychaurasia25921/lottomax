@@ -166,6 +166,7 @@ onMounted(() => {
                 <strong>Razorpay payment portal</strong>
                 <span>{{ store.pendingPayment.razorpay?.orderId || store.pendingPayment.provider }}</span>
                 <button class="button secondary" type="submit" :disabled="store.loading">Reopen Razorpay Checkout</button>
+                <button class="button ghost" type="button" :disabled="store.loading" @click="store.testCapturePayment">Capture test payment</button>
               </div>
             </div>
           </form>

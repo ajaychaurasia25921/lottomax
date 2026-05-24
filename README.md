@@ -44,6 +44,10 @@ npm run build
 npm run server
 ```
 
+With Razorpay test keys, the UI also exposes `Capture test payment` for local Docker
+development when Checkout popups or callbacks are blocked. Set
+`LOTTOMAX_ALLOW_RAZORPAY_TEST_CAPTURE=false` outside test environments.
+
 ## Docker
 
 ```bash

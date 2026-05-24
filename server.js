@@ -19,6 +19,7 @@ const COMPANY_PAYEE_NAME = process.env.LOTTOMAX_COMPANY_PAYEE_NAME ?? 'LottoMax'
 const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID ?? '';
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? '';
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
+const ALLOW_RAZORPAY_TEST_CAPTURE = process.env.LOTTOMAX_ALLOW_RAZORPAY_TEST_CAPTURE !== 'false';
 
 const GROUP_PRESETS = [
   { id: 'group-5', title: '5 Player Rush', size: 5, entryFee: 250 },
@@ -183,6 +184,10 @@ function paymentOrderView(order) {
 
 function razorpayConfigured() {
   return Boolean(RAZORPAY_KEY_ID && RAZORPAY_KEY_SECRET);
+}
+
+function razorpayTestMode() {
+  return RAZORPAY_KEY_ID.startsWith('rzp_test_');
 }
 
 function razorpayRequest(pathname, payload) {
@@ -362,14 +367,21 @@ async function handleApi(request, response, pathname) {
   const query = new URL(request.url, `http://${request.headers.host}`).searchParams;
 
   if (method === 'GET' && pathname === '/api/health') {
-    return json(response, 200, { ok: true, provider: PAYMENT_PROVIDER, razorpayConfigured: razorpayConfigured(), at: now() });
+    return json(response, 200, {
+      ok: true,
+      provider: PAYMENT_PROVIDER,
+      razorpayConfigured: razorpayConfigured(),
+      razorpayTestMode: razorpayTestMode(),
+      at: now()
+    });
   }
 
   if (method === 'GET' && pathname === '/api/payments/config') {
     return json(response, 200, {
       provider: PAYMENT_PROVIDER,
       razorpayConfigured: razorpayConfigured(),
-      razorpayKeyId: RAZORPAY_KEY_ID
+      razorpayKeyId: RAZORPAY_KEY_ID,
+      razorpayTestMode: razorpayTestMode()
     });
   }
 
@@ -590,6 +602,28 @@ async function handleApi(request, response, pathname) {
       paymentId: order.id,
       providerReference: order.providerReference,
       razorpayOrderId: order.razorpayOrderId
+    });
+    writeDb(db);
+    return json(response, 200, statePayload(db, user));
+  }
+
+  if (method === 'POST' && pathname === '/api/payments/test-capture') {
+    const user = requireUser(db, body.token);
+    if (!ALLOW_RAZORPAY_TEST_CAPTURE || !razorpayTestMode()) {
+      throw Object.assign(new Error('Razorpay test capture is only available with rzp_test keys'), { status: 403 });
+    }
+    const order = db.payments.find((payment) => payment.id === body.orderId && payment.userId === user.id);
+    if (!order) throw Object.assign(new Error('Payment order not found'), { status: 404 });
+    if (order.status !== 'PENDING_RAZORPAY_CAPTURE') {
+      throw Object.assign(new Error('Payment order is already processed'), { status: 409 });
+    }
+    order.status = 'CAPTURED';
+    order.providerReference = `test_capture_${order.razorpayOrderId}`;
+    order.capturedAt = now();
+    creditWallet(db, user, order.amount, 'Wallet top-up via Razorpay test capture', {
+      paymentId: order.id,
+      razorpayOrderId: order.razorpayOrderId,
+      testCapture: true
     });
     writeDb(db);
     return json(response, 200, statePayload(db, user));
