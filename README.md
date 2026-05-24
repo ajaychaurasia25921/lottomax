@@ -55,3 +55,43 @@ The repository includes `render.yaml` for a GitHub-connected Render deployment.
 5. Enable provider webhooks for payment capture verification.
 
 Free web services can sleep after inactivity. For public launch, move the wallet ledger to a managed database and run on a paid always-on instance before processing real payments.
+
+## Enterprise Artifacts
+
+This branch adds a production-oriented enterprise package alongside the existing Vue/Vite app:
+
+```text
+docs/
+  hld-lld.md
+  confluence-prd.md
+  investor-pitch-deck.md
+  ui-ux-wireframes.md
+enterprise/
+  backend/
+    cmd/api/main.go
+    db/schema.sql
+    internal/audit
+    internal/http
+    internal/ledger
+    internal/models
+    internal/money
+    internal/rng
+    internal/services
+  frontend/
+    src/app/onboarding/page.tsx
+    src/app/wallet/page.tsx
+    src/components/CIAMOnboarding.tsx
+    src/components/Wallet.tsx
+    src/hooks/useWallet.ts
+    src/lib/api.ts
+    src/store/walletStore.ts
+```
+
+Backend verification:
+
+```bash
+cd enterprise/backend
+go test ./...
+```
+
+The enterprise backend contains the lottery broad group engine, cryptographic RNG interface, append-only ledger writer, admin audit logging, automated settlement service, and unit tests for exact 15%/85% payout math.
