@@ -66,6 +66,7 @@ docs/
   confluence-prd.md
   investor-pitch-deck.md
   ui-ux-wireframes.md
+  openapi/lottomax-enterprise.yaml
 enterprise/
   backend/
     cmd/api/main.go
@@ -77,6 +78,11 @@ enterprise/
     internal/money
     internal/rng
     internal/services
+  backend-java/
+    build.gradle.kts
+    settings.gradle.kts
+    src/main/java/com/lottomax/enterprise
+    src/test/java/com/lottomax/enterprise
   frontend/
     src/app/onboarding/page.tsx
     src/app/wallet/page.tsx
@@ -95,3 +101,18 @@ go test ./...
 ```
 
 The enterprise backend contains the lottery broad group engine, cryptographic RNG interface, append-only ledger writer, admin audit logging, automated settlement service, and unit tests for exact 15%/85% payout math.
+
+OpenAPI specification:
+
+```bash
+docs/openapi/lottomax-enterprise.yaml
+```
+
+Gradle backend verification:
+
+```bash
+cd enterprise/backend-java
+gradle test
+```
+
+No Maven project files are used for the enterprise Java backend.

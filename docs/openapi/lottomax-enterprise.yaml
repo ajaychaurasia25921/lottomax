@@ -1,0 +1,489 @@
+openapi: 3.1.0
+info:
+  title: LottoMax Enterprise API
+  version: 1.0.0
+  summary: CIAM, wallet, lottery broad group, settlement, and admin risk APIs.
+  description: >
+    Production API contract for LottoMax real-money wallet and lottery operations.
+    All monetary fields use integer minor units. Payment card data is never accepted
+    by LottoMax APIs; gateway tokens and signed webhook references are used instead.
+servers:
+  - url: https://api.lottomax.example.com/v1
+    description: Production
+  - url: http://localhost:8080/v1
+    description: Local development
+security:
+  - bearerAuth: []
+tags:
+  - name: Onboarding
+  - name: Wallet
+  - name: Lottery
+  - name: Settlement
+  - name: Admin
+paths:
+  /onboarding/mfa:
+    post:
+      tags: [Onboarding]
+      operationId: startMfaOnboarding
+      summary: Start CIAM MFA onboarding.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MfaOnboardingRequest"
+      responses:
+        "202":
+          description: MFA challenge started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaOnboardingResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /wallets/{walletId}/balance:
+    get:
+      tags: [Wallet]
+      operationId: getWalletBalance
+      summary: Get real-time wallet balance projection.
+      parameters:
+        - $ref: "#/components/parameters/WalletId"
+      responses:
+        "200":
+          description: Wallet balance.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletBalance"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /wallets/{walletId}/deposits:
+    post:
+      tags: [Wallet]
+      operationId: createDeposit
+      summary: Create a gateway deposit intent.
+      parameters:
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDepositRequest"
+      responses:
+        "201":
+          description: Deposit intent created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepositIntent"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /wallets/{walletId}/withdrawals:
+    post:
+      tags: [Wallet]
+      operationId: requestWithdrawal
+      summary: Request automated or reviewed withdrawal.
+      parameters:
+        - $ref: "#/components/parameters/WalletId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalRequest"
+      responses:
+        "202":
+          description: Withdrawal accepted for instant processing or review.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalDecision"
+  /payment-webhooks/gateway:
+    post:
+      tags: [Wallet]
+      operationId: receiveGatewayWebhook
+      summary: Receive signed payment gateway webhook.
+      security:
+        - gatewaySignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GatewayWebhook"
+      responses:
+        "204":
+          description: Webhook accepted.
+        "401":
+          description: Invalid signature.
+  /admin/broad-groups:
+    post:
+      tags: [Admin, Lottery]
+      operationId: createBroadGroup
+      summary: Create a broad lottery group.
+      parameters:
+        - $ref: "#/components/parameters/AdminId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BroadGroupCreateRequest"
+      responses:
+        "201":
+          description: Broad group created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadGroup"
+  /admin/broad-groups/{groupId}/pause:
+    post:
+      tags: [Admin, Lottery]
+      operationId: pauseBroadGroup
+      summary: Pause a broad group.
+      parameters:
+        - $ref: "#/components/parameters/AdminId"
+        - $ref: "#/components/parameters/GroupId"
+      responses:
+        "200":
+          description: Group paused.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadGroup"
+  /draws/{drawId}/tickets:
+    post:
+      tags: [Lottery]
+      operationId: buyTicket
+      summary: Buy a ticket using wallet balance.
+      parameters:
+        - $ref: "#/components/parameters/DrawId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuyTicketRequest"
+      responses:
+        "201":
+          description: Ticket purchased.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ticket"
+  /draws/{drawId}/settlement:
+    post:
+      tags: [Settlement]
+      operationId: settleDraw
+      summary: Freeze pool, select winner, and post settlement.
+      parameters:
+        - $ref: "#/components/parameters/DrawId"
+        - $ref: "#/components/parameters/AdminId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettleDrawRequest"
+      responses:
+        "200":
+          description: Settlement posted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settlement"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /admin/risk-dashboard:
+    get:
+      tags: [Admin]
+      operationId: getRiskDashboard
+      summary: Get ticket sales, hot wallet liquidity, and velocity alerts.
+      responses:
+        "200":
+          description: Financial risk dashboard.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskDashboard"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Auth0 or AWS Cognito JWT with MFA and KYC claims.
+    gatewaySignature:
+      type: apiKey
+      in: header
+      name: X-Gateway-Signature
+  parameters:
+    WalletId:
+      name: walletId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    GroupId:
+      name: groupId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DrawId:
+      name: drawId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AdminId:
+      name: X-Admin-ID
+      in: header
+      required: true
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Conflict or duplicate idempotency key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    Money:
+      type: object
+      required: [cents, currency]
+      properties:
+        cents:
+          type: integer
+          format: int64
+          minimum: 0
+        currency:
+          type: string
+          enum: [USD, CAD]
+    MfaOnboardingRequest:
+      type: object
+      required: [email, phone, mfaChannel]
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        mfaChannel:
+          type: string
+          enum: [sms, email]
+    MfaOnboardingResponse:
+      type: object
+      required: [challengeId, status]
+      properties:
+        challengeId:
+          type: string
+        status:
+          type: string
+          enum: [challenge_started]
+    WalletBalance:
+      type: object
+      required: [walletId, available, held, updatedAt]
+      properties:
+        walletId:
+          type: string
+          format: uuid
+        available:
+          $ref: "#/components/schemas/Money"
+        held:
+          $ref: "#/components/schemas/Money"
+        updatedAt:
+          type: string
+          format: date-time
+    CreateDepositRequest:
+      type: object
+      required: [amount, gatewayToken]
+      properties:
+        amount:
+          $ref: "#/components/schemas/Money"
+        gatewayToken:
+          type: string
+    DepositIntent:
+      type: object
+      required: [depositId, status, gatewayReference]
+      properties:
+        depositId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [created, pending_capture, captured, failed]
+        gatewayReference:
+          type: string
+    WithdrawalRequest:
+      type: object
+      required: [amount, payoutAccountId]
+      properties:
+        amount:
+          $ref: "#/components/schemas/Money"
+        payoutAccountId:
+          type: string
+    WithdrawalDecision:
+      type: object
+      required: [withdrawalId, status, reason]
+      properties:
+        withdrawalId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [instant_processing, manual_review, denied]
+        reason:
+          type: string
+    GatewayWebhook:
+      type: object
+      required: [eventId, gatewayReference, eventType, amount]
+      properties:
+        eventId:
+          type: string
+        gatewayReference:
+          type: string
+        eventType:
+          type: string
+          enum: [payment_captured, payout_completed, payout_failed]
+        amount:
+          $ref: "#/components/schemas/Money"
+    BroadGroupCreateRequest:
+      type: object
+      required: [name, maxPlayers, ticketPrice]
+      properties:
+        name:
+          type: string
+        maxPlayers:
+          type: integer
+          minimum: 2
+        ticketPrice:
+          $ref: "#/components/schemas/Money"
+    BroadGroup:
+      type: object
+      required: [id, name, status, maxPlayers, ticketPrice]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [OPEN, PAUSED, FROZEN, SETTLED, VOID]
+        maxPlayers:
+          type: integer
+        ticketPrice:
+          $ref: "#/components/schemas/Money"
+    BuyTicketRequest:
+      type: object
+      required: [walletId, numberSet]
+      properties:
+        walletId:
+          type: string
+          format: uuid
+        numberSet:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items:
+            type: integer
+            minimum: 1
+            maximum: 49
+    Ticket:
+      type: object
+      required: [id, drawId, userId, numberSet, price]
+      properties:
+        id:
+          type: string
+          format: uuid
+        drawId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        numberSet:
+          type: array
+          items:
+            type: integer
+        price:
+          $ref: "#/components/schemas/Money"
+    SettleDrawRequest:
+      type: object
+      required: [rngNonce]
+      properties:
+        rngNonce:
+          type: string
+          minLength: 16
+    Settlement:
+      type: object
+      required: [id, drawId, winnerUserId, winnerTicketId, companyAmount, winnerAmount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        drawId:
+          type: string
+          format: uuid
+        winnerUserId:
+          type: string
+          format: uuid
+        winnerTicketId:
+          type: string
+          format: uuid
+        companyAmount:
+          $ref: "#/components/schemas/Money"
+        winnerAmount:
+          $ref: "#/components/schemas/Money"
+        status:
+          type: string
+          enum: [POSTED, REVERSED]
+    RiskDashboard:
+      type: object
+      required: [ticketSales, hotWalletLiquidityPercent, velocityAlerts, manualReviews]
+      properties:
+        ticketSales:
+          $ref: "#/components/schemas/Money"
+        hotWalletLiquidityPercent:
+          type: number
+        velocityAlerts:
+          type: integer
+        manualReviews:
+          type: integer
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
