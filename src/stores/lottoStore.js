@@ -3,6 +3,13 @@ import { defineStore } from 'pinia';
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
+function base64Url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
 function currency(amount) {
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
@@ -38,6 +45,7 @@ export const useLottoStore = defineStore('lotto', () => {
   const loading = ref(false);
   const error = ref('');
   const notice = ref('');
+  const ciamConfig = ref({ enabled: false, devLoginEnabled: true });
   const playerSearch = ref('');
   const selectedPlayerId = ref('');
 
@@ -116,6 +124,11 @@ export const useLottoStore = defineStore('lotto', () => {
     if (!selectedPlayerId.value && users.value.length) selectedPlayerId.value = users.value[0].id;
   }
 
+  async function loadCiamConfig() {
+    ciamConfig.value = await request('/api/ciam/config');
+    return ciamConfig.value;
+  }
+
   async function run(action, successMessage) {
     loading.value = true;
     setMessage();
@@ -133,6 +146,9 @@ export const useLottoStore = defineStore('lotto', () => {
   }
 
   async function loadState() {
+    await loadCiamConfig();
+    const callbackHandled = await completeCiamCallback();
+    if (callbackHandled) return callbackHandled;
     if (!token.value) {
       const payload = await request('/api/public-state');
       commitState(payload);
@@ -151,6 +167,72 @@ export const useLottoStore = defineStore('lotto', () => {
       localStorage.setItem('lottomax.token', token.value);
       return payload;
     }, 'Account created. Wallet is active after payment top-up.');
+  }
+
+  async function createPkceChallenge() {
+    const random = crypto.getRandomValues(new Uint8Array(32));
+    const verifier = base64Url(random);
+    const challengeBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return { verifier, challenge: base64Url(challengeBuffer) };
+  }
+
+  async function startCiamLogin() {
+    const config = ciamConfig.value.enabled ? ciamConfig.value : await loadCiamConfig();
+    if (!config.enabled) {
+      setMessage('', 'CIAM is not configured. Use the local dev login or set CIAM_ISSUER_URL and CIAM_CLIENT_ID.');
+      return;
+    }
+    const { verifier, challenge } = await createPkceChallenge();
+    const state = crypto.randomUUID();
+    const redirectUri = config.redirectUri || window.location.origin + window.location.pathname;
+    sessionStorage.setItem('lottomax.pkce.verifier', verifier);
+    sessionStorage.setItem('lottomax.pkce.state', state);
+    sessionStorage.setItem('lottomax.pkce.redirectUri', redirectUri);
+    const authorizeUrl = new URL('authorize', config.issuerUrl);
+    const params = new URLSearchParams({
+      response_type: 'code',
+      client_id: config.clientId,
+      redirect_uri: redirectUri,
+      scope: config.scope,
+      code_challenge: challenge,
+      code_challenge_method: 'S256',
+      state
+    });
+    if (config.audience) params.set('audience', config.audience);
+    authorizeUrl.search = params.toString();
+    window.location.assign(authorizeUrl.toString());
+  }
+
+  async function completeCiamCallback() {
+    const callbackUrl = new URL(window.location.href);
+    const code = callbackUrl.searchParams.get('code');
+    const state = callbackUrl.searchParams.get('state');
+    if (!code) return null;
+    const expectedState = sessionStorage.getItem('lottomax.pkce.state');
+    const verifier = sessionStorage.getItem('lottomax.pkce.verifier');
+    const redirectUri = sessionStorage.getItem('lottomax.pkce.redirectUri');
+    if (!expectedState || expectedState !== state || !verifier) {
+      setMessage('', 'CIAM login state is invalid. Please sign in again.');
+      return null;
+    }
+    const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash}`;
+    window.history.replaceState({}, document.title, cleanUrl);
+    sessionStorage.removeItem('lottomax.pkce.state');
+    sessionStorage.removeItem('lottomax.pkce.verifier');
+    sessionStorage.removeItem('lottomax.pkce.redirectUri');
+    return run(async () => {
+      const payload = await request('/api/auth/ciam/exchange', {
+        method: 'POST',
+        body: JSON.stringify({
+          code,
+          codeVerifier: verifier,
+          redirectUri
+        })
+      });
+      token.value = payload.token;
+      localStorage.setItem('lottomax.token', token.value);
+      return payload;
+    }, 'CIAM sign in complete.');
   }
 
   async function login() {
@@ -343,6 +425,7 @@ export const useLottoStore = defineStore('lotto', () => {
 
   return {
     token,
+    ciamConfig,
     user,
     users,
     groups,
@@ -373,6 +456,7 @@ export const useLottoStore = defineStore('lotto', () => {
     currency,
     loadState,
     register,
+    startCiamLogin,
     login,
     logout,
     selectGroup,

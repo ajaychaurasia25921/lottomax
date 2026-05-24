@@ -127,27 +127,25 @@ onMounted(() => {
 
       <div class="console-grid">
         <article class="glass-panel">
-          <span>User Management</span>
-          <h3>{{ store.user ? store.user.name : 'Create player' }}</h3>
+          <span>CIAM Access</span>
+          <h3>{{ store.user ? store.user.name : 'Verified sign in' }}</h3>
           <div v-if="!store.user" class="split-forms">
-            <form class="form-grid" @submit.prevent="store.register">
-              <strong>Create player</strong>
-              <input v-model="store.authForm.name" placeholder="Full name" />
-              <input v-model="store.authForm.email" placeholder="Email" />
-              <input v-model="store.authForm.phone" placeholder="Phone" />
-              <input v-model="store.authForm.password" type="password" placeholder="Password" />
-              <label><input v-model="store.authForm.ageConfirmed" type="checkbox" /> I confirm this player is 18+</label>
-              <button class="button primary" :disabled="store.loading">Create account</button>
+            <form class="form-grid" @submit.prevent="store.startCiamLogin">
+              <strong>Auth0 / Cognito CIAM</strong>
+              <p class="form-note">MFA and KYC claims are verified before wallet access.</p>
+              <button class="button primary" :disabled="store.loading || !store.ciamConfig.enabled">Continue with CIAM</button>
+              <small v-if="!store.ciamConfig.enabled">Set CIAM_ISSUER_URL and CIAM_CLIENT_ID to enable production CIAM.</small>
             </form>
-            <form class="form-grid" @submit.prevent="store.login">
-              <strong>Owner / player sign in</strong>
+            <form v-if="store.ciamConfig.devLoginEnabled" class="form-grid" @submit.prevent="store.login">
+              <strong>Local dev fallback</strong>
               <input v-model="store.loginForm.email" placeholder="Email" />
               <input v-model="store.loginForm.password" type="password" placeholder="Password" />
-              <button class="button secondary" :disabled="store.loading">Sign in</button>
+              <button class="button secondary" :disabled="store.loading">Dev sign in</button>
+              <button class="button ghost" type="button" :disabled="store.loading" @click="store.register">Create dev account</button>
             </form>
           </div>
           <form v-else class="form-grid compact" @submit.prevent="store.logout">
-            <p>{{ store.user.email }} · {{ store.user.kycStatus }} · {{ store.user.role }}</p>
+            <p>{{ store.user.email }} · {{ store.user.kycStatus }} · MFA {{ store.user.mfaVerified ? 'verified' : 'pending' }} · {{ store.user.role }}</p>
             <button class="button secondary" type="submit">Sign out</button>
           </form>
         </article>

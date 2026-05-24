@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, randomBytes, verify as verifySignature } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
 import { extname, join, resolve } from 'node:path';
@@ -20,6 +20,19 @@ const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID ?? '';
 const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? '';
 const RAZORPAY_WEBHOOK_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
 const ALLOW_RAZORPAY_TEST_CAPTURE = process.env.LOTTOMAX_ALLOW_RAZORPAY_TEST_CAPTURE !== 'false';
+const CIAM_PROVIDER = process.env.CIAM_PROVIDER ?? 'auth0';
+const CIAM_ISSUER_URL = normalizeIssuer(process.env.CIAM_ISSUER_URL ?? process.env.AUTH0_ISSUER_URL ?? '');
+const CIAM_CLIENT_ID = process.env.CIAM_CLIENT_ID ?? process.env.AUTH0_CLIENT_ID ?? '';
+const CIAM_CLIENT_SECRET = process.env.CIAM_CLIENT_SECRET ?? process.env.AUTH0_CLIENT_SECRET ?? '';
+const CIAM_AUDIENCE = process.env.CIAM_AUDIENCE ?? process.env.AUTH0_AUDIENCE ?? CIAM_CLIENT_ID;
+const CIAM_REDIRECT_URI = process.env.CIAM_REDIRECT_URI ?? 'http://localhost:5180';
+const CIAM_SCOPE = process.env.CIAM_SCOPE ?? 'openid profile email phone';
+const CIAM_KYC_CLAIM = process.env.CIAM_KYC_CLAIM ?? 'https://lottomax.example.com/kyc_status';
+const CIAM_ROLE_CLAIM = process.env.CIAM_ROLE_CLAIM ?? 'https://lottomax.example.com/roles';
+const CIAM_DEV_LOGIN_ENABLED = process.env.CIAM_DEV_LOGIN_ENABLED
+  ? process.env.CIAM_DEV_LOGIN_ENABLED === 'true'
+  : !CIAM_ISSUER_URL;
+const ciamCache = { discovery: null, jwks: null, loadedAt: 0 };
 
 const GROUP_PRESETS = [
   { id: 'group-5', title: '5 Player Rush', size: 5, entryFee: 250 },
@@ -40,6 +53,11 @@ const MIME_TYPES = {
 
 function now() {
   return new Date().toISOString();
+}
+
+function normalizeIssuer(value) {
+  if (!value) return '';
+  return value.endsWith('/') ? value : `${value}/`;
 }
 
 function loadLocalEnv() {
@@ -69,6 +87,25 @@ function hashPassword(password, salt = randomBytes(16).toString('hex')) {
 function verifyPassword(password, stored) {
   const [salt] = stored.split(':');
   return hashPassword(password, salt) === stored;
+}
+
+function base64Url(buffer) {
+  return Buffer.from(buffer).toString('base64url');
+}
+
+function decodeJwtPart(part) {
+  return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
+}
+
+function decodeJwt(token) {
+  const [header, payload, signature] = String(token).split('.');
+  if (!header || !payload || !signature) throw Object.assign(new Error('Invalid CIAM token'), { status: 401 });
+  return {
+    header: decodeJwtPart(header),
+    payload: decodeJwtPart(payload),
+    signed: `${header}.${payload}`,
+    signature: Buffer.from(signature, 'base64url')
+  };
 }
 
 function makeGroup(preset) {
@@ -128,11 +165,13 @@ function publicUser(user) {
   if (!user) return null;
   return {
     id: user.id,
+    ciamSubject: user.ciamSubject ?? null,
     name: user.name,
     email: user.email,
     phone: user.phone,
     role: user.role,
     kycStatus: user.kycStatus,
+    mfaVerified: user.mfaVerified ?? false,
     accountStatus: user.accountStatus ?? 'ACTIVE',
     riskLevel: user.riskLevel ?? 'LOW',
     notes: user.notes ?? [],
@@ -262,6 +301,92 @@ function verifyRazorpayWebhookSignature(rawBody, signature) {
   return expected === signature;
 }
 
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw Object.assign(new Error(payload.error_description ?? payload.error ?? `Request failed: ${url}`), {
+      status: response.status >= 500 ? 502 : response.status
+    });
+  }
+  return payload;
+}
+
+async function getCiamDiscovery() {
+  if (!CIAM_ISSUER_URL) throw Object.assign(new Error('CIAM issuer is not configured'), { status: 503 });
+  if (ciamCache.discovery) return ciamCache.discovery;
+  ciamCache.discovery = await fetchJson(`${CIAM_ISSUER_URL}.well-known/openid-configuration`);
+  return ciamCache.discovery;
+}
+
+async function getCiamJwks() {
+  const stale = Date.now() - ciamCache.loadedAt > 10 * 60 * 1000;
+  if (ciamCache.jwks && !stale) return ciamCache.jwks;
+  const discovery = await getCiamDiscovery();
+  ciamCache.jwks = await fetchJson(discovery.jwks_uri);
+  ciamCache.loadedAt = Date.now();
+  return ciamCache.jwks;
+}
+
+function validateAudience(payload) {
+  if (!CIAM_AUDIENCE) return true;
+  const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  return aud.includes(CIAM_AUDIENCE) || aud.includes(CIAM_CLIENT_ID);
+}
+
+async function verifyCiamJwt(token) {
+  const decoded = decodeJwt(token);
+  if (decoded.header.alg !== 'RS256') {
+    throw Object.assign(new Error('Only RS256 CIAM tokens are accepted'), { status: 401 });
+  }
+  const jwks = await getCiamJwks();
+  const jwk = jwks.keys?.find((key) => key.kid === decoded.header.kid);
+  if (!jwk) throw Object.assign(new Error('CIAM signing key not found'), { status: 401 });
+  const publicKey = createPublicKey({ key: jwk, format: 'jwk' });
+  const valid = verifySignature('RSA-SHA256', Buffer.from(decoded.signed), publicKey, decoded.signature);
+  if (!valid) throw Object.assign(new Error('CIAM token signature verification failed'), { status: 401 });
+  const payload = decoded.payload;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (payload.iss !== CIAM_ISSUER_URL) throw Object.assign(new Error('CIAM token issuer mismatch'), { status: 401 });
+  if (payload.exp <= nowSeconds) throw Object.assign(new Error('CIAM token has expired'), { status: 401 });
+  if (!validateAudience(payload)) throw Object.assign(new Error('CIAM token audience mismatch'), { status: 401 });
+  return payload;
+}
+
+async function exchangeCiamCode({ code, codeVerifier, redirectUri }) {
+  if (!CIAM_ISSUER_URL || !CIAM_CLIENT_ID) {
+    throw Object.assign(new Error('CIAM issuer and client ID must be configured'), { status: 503 });
+  }
+  const discovery = await getCiamDiscovery();
+  const params = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: CIAM_CLIENT_ID,
+    code,
+    code_verifier: codeVerifier,
+    redirect_uri: redirectUri || CIAM_REDIRECT_URI
+  });
+  if (CIAM_CLIENT_SECRET) params.set('client_secret', CIAM_CLIENT_SECRET);
+  return fetchJson(discovery.token_endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+}
+
+function ciamUserFromClaims(claims) {
+  const roles = claims[CIAM_ROLE_CLAIM] ?? claims.roles ?? [];
+  const roleList = Array.isArray(roles) ? roles : String(roles).split(/\s*,\s*/);
+  return {
+    ciamSubject: claims.sub,
+    name: claims.name ?? claims.nickname ?? claims.email ?? 'Verified player',
+    email: claims.email ?? '',
+    phone: claims.phone_number ?? '',
+    role: roleList.includes('OWNER') || roleList.includes('admin') ? 'OWNER' : 'PLAYER',
+    mfaVerified: claims.amr?.includes('mfa') || claims.acr?.includes('mfa') || claims[`${CIAM_KYC_CLAIM}_mfa`] === true,
+    kycStatus: String(claims[CIAM_KYC_CLAIM] ?? claims.kyc_status ?? 'PENDING').toUpperCase()
+  };
+}
+
 function parseBody(request, { raw = false } = {}) {
   return new Promise((resolveBody, rejectBody) => {
     let body = '';
@@ -289,6 +414,46 @@ function requireUser(db, token) {
   const user = db.users.find((item) => item.id === userId);
   if (!user) throw Object.assign(new Error('Sign in required'), { status: 401 });
   return user;
+}
+
+function upsertCiamUser(db, identity) {
+  let user = db.users.find((item) => item.ciamSubject === identity.ciamSubject || (identity.email && item.email === identity.email.toLowerCase()));
+  if (!user) {
+    user = {
+      id: id('user'),
+      ciamSubject: identity.ciamSubject,
+      name: identity.name,
+      email: identity.email.toLowerCase(),
+      phone: identity.phone,
+      role: db.users.length === 0 || identity.role === 'OWNER' ? 'OWNER' : 'PLAYER',
+      kycStatus: identity.kycStatus,
+      accountStatus: 'ACTIVE',
+      riskLevel: identity.mfaVerified ? 'LOW' : 'MEDIUM',
+      mfaVerified: identity.mfaVerified,
+      notes: [],
+      passwordHash: '',
+      wallet: { id: id('wallet'), balance: 0, currency: 'INR' },
+      createdAt: now()
+    };
+    db.users.push(user);
+  } else {
+    user.ciamSubject = identity.ciamSubject;
+    user.name = identity.name || user.name;
+    user.email = identity.email?.toLowerCase() || user.email;
+    user.phone = identity.phone || user.phone;
+    user.kycStatus = identity.kycStatus || user.kycStatus;
+    user.mfaVerified = identity.mfaVerified;
+    user.riskLevel = identity.mfaVerified ? (user.riskLevel === 'HIGH' ? 'HIGH' : 'LOW') : 'MEDIUM';
+    if (identity.role === 'OWNER') user.role = 'OWNER';
+  }
+  user.lastLoginAt = now();
+  return user;
+}
+
+function createSession(db, user) {
+  const token = id('session');
+  db.sessions[token] = user.id;
+  return token;
 }
 
 function requireOwner(db, token) {
@@ -385,6 +550,19 @@ async function handleApi(request, response, pathname) {
     });
   }
 
+  if (method === 'GET' && pathname === '/api/ciam/config') {
+    return json(response, 200, {
+      provider: CIAM_PROVIDER,
+      enabled: Boolean(CIAM_ISSUER_URL && CIAM_CLIENT_ID),
+      issuerUrl: CIAM_ISSUER_URL,
+      clientId: CIAM_CLIENT_ID,
+      audience: CIAM_AUDIENCE,
+      redirectUri: CIAM_REDIRECT_URI,
+      scope: CIAM_SCOPE,
+      devLoginEnabled: CIAM_DEV_LOGIN_ENABLED
+    });
+  }
+
   if (method === 'GET' && pathname === '/api/public-state') {
     return json(response, 200, statePayload(db));
   }
@@ -437,6 +615,9 @@ async function handleApi(request, response, pathname) {
   const body = await parseBody(request);
 
   if (method === 'POST' && pathname === '/api/auth/register') {
+    if (!CIAM_DEV_LOGIN_ENABLED) {
+      throw Object.assign(new Error('Local password registration is disabled. Use CIAM sign in.'), { status: 403 });
+    }
     validateAgeConfirmed(body);
     if (!body.name || !body.email || !body.password) throw Object.assign(new Error('Name, email, and password are required'), { status: 400 });
     if (db.users.some((user) => user.email.toLowerCase() === body.email.toLowerCase())) {
@@ -449,6 +630,7 @@ async function handleApi(request, response, pathname) {
       phone: body.phone ?? '',
       role: db.users.length === 0 ? 'OWNER' : 'PLAYER',
       kycStatus: 'BASIC_VERIFIED',
+      mfaVerified: false,
       accountStatus: 'ACTIVE',
       riskLevel: 'LOW',
       notes: [],
@@ -456,14 +638,16 @@ async function handleApi(request, response, pathname) {
       wallet: { id: id('wallet'), balance: 0, currency: 'INR' },
       createdAt: now()
     };
-    const token = id('session');
     db.users.push(user);
-    db.sessions[token] = user.id;
+    const token = createSession(db, user);
     writeDb(db);
     return json(response, 201, { token, ...statePayload(db, user) });
   }
 
   if (method === 'POST' && pathname === '/api/auth/login') {
+    if (!CIAM_DEV_LOGIN_ENABLED) {
+      throw Object.assign(new Error('Local password login is disabled. Use CIAM sign in.'), { status: 403 });
+    }
     const user = db.users.find((item) => item.email === String(body.email ?? '').toLowerCase());
     if (!user || !verifyPassword(body.password ?? '', user.passwordHash)) {
       throw Object.assign(new Error('Invalid email or password'), { status: 401 });
@@ -471,9 +655,28 @@ async function handleApi(request, response, pathname) {
     if ((user.accountStatus ?? 'ACTIVE') === 'SUSPENDED') {
       throw Object.assign(new Error('Player account is suspended'), { status: 403 });
     }
-    const token = id('session');
-    db.sessions[token] = user.id;
+    const token = createSession(db, user);
     user.lastLoginAt = now();
+    writeDb(db);
+    return json(response, 200, { token, ...statePayload(db, user) });
+  }
+
+  if (method === 'POST' && pathname === '/api/auth/ciam/exchange') {
+    if (!body.code || !body.codeVerifier) {
+      throw Object.assign(new Error('CIAM authorization code and PKCE verifier are required'), { status: 400 });
+    }
+    const tokenSet = await exchangeCiamCode({
+      code: String(body.code),
+      codeVerifier: String(body.codeVerifier),
+      redirectUri: String(body.redirectUri || CIAM_REDIRECT_URI)
+    });
+    const claims = await verifyCiamJwt(tokenSet.id_token || tokenSet.access_token);
+    const identity = ciamUserFromClaims(claims);
+    if (!identity.mfaVerified) {
+      throw Object.assign(new Error('CIAM MFA is required before wallet access'), { status: 403 });
+    }
+    const user = upsertCiamUser(db, identity);
+    const token = createSession(db, user);
     writeDb(db);
     return json(response, 200, { token, ...statePayload(db, user) });
   }

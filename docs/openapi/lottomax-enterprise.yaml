@@ -21,6 +21,42 @@ tags:
   - name: Settlement
   - name: Admin
 paths:
+  /ciam/config:
+    get:
+      tags: [Onboarding]
+      operationId: getCiamConfig
+      summary: Get CIAM OIDC configuration for browser PKCE login.
+      security: []
+      responses:
+        "200":
+          description: CIAM public configuration.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CiamConfig"
+  /auth/ciam/exchange:
+    post:
+      tags: [Onboarding]
+      operationId: exchangeCiamCode
+      summary: Exchange OIDC authorization code and create an app session.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CiamCodeExchangeRequest"
+      responses:
+        "200":
+          description: CIAM login completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CiamSession"
+        "401":
+          description: JWT validation failed.
+        "403":
+          description: MFA or KYC policy failed.
   /onboarding/mfa:
     post:
       tags: [Onboarding]
@@ -288,6 +324,49 @@ components:
         currency:
           type: string
           enum: [USD, CAD]
+    CiamConfig:
+      type: object
+      required: [provider, enabled, issuerUrl, clientId, redirectUri, scope, devLoginEnabled]
+      properties:
+        provider:
+          type: string
+          enum: [auth0, cognito, oidc]
+        enabled:
+          type: boolean
+        issuerUrl:
+          type: string
+          format: uri
+        clientId:
+          type: string
+        audience:
+          type: string
+        redirectUri:
+          type: string
+          format: uri
+        scope:
+          type: string
+        devLoginEnabled:
+          type: boolean
+    CiamCodeExchangeRequest:
+      type: object
+      required: [code, codeVerifier, redirectUri]
+      properties:
+        code:
+          type: string
+        codeVerifier:
+          type: string
+        redirectUri:
+          type: string
+          format: uri
+    CiamSession:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          type: object
+          additionalProperties: true
     MfaOnboardingRequest:
       type: object
       required: [email, phone, mfaChannel]

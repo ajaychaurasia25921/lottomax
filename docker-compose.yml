@@ -5,6 +5,16 @@ services:
     environment:
       PORT: 5180
       LOTTOMAX_DATA_DIR: /app/data
+      CIAM_PROVIDER: ${CIAM_PROVIDER:-auth0}
+      CIAM_ISSUER_URL: ${CIAM_ISSUER_URL:-}
+      CIAM_CLIENT_ID: ${CIAM_CLIENT_ID:-}
+      CIAM_CLIENT_SECRET: ${CIAM_CLIENT_SECRET:-}
+      CIAM_AUDIENCE: ${CIAM_AUDIENCE:-}
+      CIAM_REDIRECT_URI: ${CIAM_REDIRECT_URI:-http://localhost:5180/}
+      CIAM_SCOPE: ${CIAM_SCOPE:-openid profile email phone}
+      CIAM_KYC_CLAIM: ${CIAM_KYC_CLAIM:-https://lottomax.example.com/kyc_status}
+      CIAM_ROLE_CLAIM: ${CIAM_ROLE_CLAIM:-https://lottomax.example.com/roles}
+      CIAM_DEV_LOGIN_ENABLED: ${CIAM_DEV_LOGIN_ENABLED:-true}
       LOTTOMAX_PAYMENT_PROVIDER: ${LOTTOMAX_PAYMENT_PROVIDER:-razorpay}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}

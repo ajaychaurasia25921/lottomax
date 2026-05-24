@@ -22,6 +22,12 @@ orders, the browser opens the Razorpay payment portal, and wallet credit happens
 after the returned Razorpay payment signature is verified server-side. Configure
 `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and `RAZORPAY_WEBHOOK_SECRET` in `.env`.
 
+CIAM is wired through OIDC Authorization Code + PKCE for Auth0 or AWS Cognito. Configure
+`CIAM_ISSUER_URL`, `CIAM_CLIENT_ID`, `CIAM_AUDIENCE`, and `CIAM_REDIRECT_URI`; the server
+exchanges the code, verifies RS256 JWTs with JWKS, requires MFA claims, maps KYC/role
+claims, and then creates the app session. Local password auth is only a dev fallback and
+should be disabled with `CIAM_DEV_LOGIN_ENABLED=false` outside local testing.
+
 ## Development
 
 ```bash
@@ -40,6 +46,7 @@ Razorpay local setup:
 ```bash
 cp .env.example .env
 # fill RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET from your Razorpay test keys CSV
+# set CIAM_DEV_LOGIN_ENABLED=true for local fallback, or configure CIAM_ISSUER_URL and CIAM_CLIENT_ID
 npm run build
 npm run server
 ```
